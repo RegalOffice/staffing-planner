@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Staffing &amp; Schedule Planner — Bancroft Construction</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#eef1f5; --surface:#ffffff; --surface-2:#f4f7fa; --surface-3:#eaeff4;
+    --ink:#16212c; --muted:#5c6b7a; --faint:#93a1ae; --line:#d8e0e8; --line-strong:#c2cdd8;
+    --brand:#1f4e78; --brand-strong:#163a5a; --brand-soft:#e2ebf4;
+    --active:#1a8f5f; --active-soft:#e2f3ea; --active-line:#bfe4d1;
+    --gap:#cf3d33; --gap-soft:#fae4e2; --gap-line:#f0c3bf;
+    --warn:#bd7d10; --warn-soft:#f8eccf; --ss:#2f6db0; --pm:#8a4fb0;
+    --shadow:0 1px 2px rgba(20,40,60,.05), 0 12px 30px -16px rgba(20,40,60,.22);
+    --radius:14px; --radius-sm:9px;
+    --sans:system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0d141b; --surface:#141d26; --surface-2:#111922; --surface-3:#1a2531;
+      --ink:#e6edf4; --muted:#93a3b3; --faint:#5f6f7e; --line:#243240; --line-strong:#31404f;
+      --brand:#5b9bd5; --brand-strong:#82b6e4; --brand-soft:#16283a;
+      --active:#34c98a; --active-soft:#12291f; --active-line:#1f4536;
+      --gap:#f0655a; --gap-soft:#2c1614; --gap-line:#4a2420;
+      --warn:#e0a53c; --warn-soft:#2c2110; --ss:#5b9bd5; --pm:#b785d8;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 34px -18px rgba(0,0,0,.7); }
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{font-family:var(--sans); color:var(--ink); background:var(--bg)}
+  .app{min-height:100vh; padding:clamp(14px,2.5vw,30px); max-width:1320px; margin:0 auto; line-height:1.45}
+  .hide{display:none !important}
+
+  /* Gate */
+  .gate{position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px; z-index:100}
+  .gatecard{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:30px; max-width:400px; width:100%}
+  .gatecard .eyebrow{font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--brand); font-weight:600; margin:0 0 4px}
+  .gatecard h1{margin:0 0 6px; font-size:1.5rem; font-weight:700; letter-spacing:-.02em}
+  .gsub{color:var(--muted); font-size:.88rem; margin:0 0 20px}
+  .gatecard label{display:block; font-size:.8rem; font-weight:600; color:var(--muted); margin:0 0 14px}
+  .gatecard input{display:block; width:100%; margin-top:5px; font:inherit; font-size:1rem; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface-2); color:var(--ink)}
+  .gatecard input:focus{outline:none; border-color:var(--brand); box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 25%,transparent)}
+  .gerr{color:var(--gap); font-size:.82rem; margin:10px 0 0; min-height:1em}
+
+  .masthead{display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:16px}
+  .eyebrow{font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--brand); font-weight:600; margin:0 0 4px}
+  .masthead h1{margin:0; font-size:clamp(1.4rem,1.1rem+1.2vw,1.9rem); font-weight:700; letter-spacing:-.02em; line-height:1.05}
+  .mhr{display:flex; flex-direction:column; align-items:flex-end; gap:6px}
+  .horizon{font-family:var(--mono); font-size:.78rem; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:5px 13px; white-space:nowrap}
+  .sync{font-size:.76rem; font-weight:600; display:flex; align-items:center; gap:6px; color:var(--muted)}
+
+  .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px}
+  @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr)} }
+  .kpi{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow); position:relative; overflow:hidden}
+  .kpi::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent,var(--brand))}
+  .kpi.alert{--accent:var(--gap)} .kpi.warnk{--accent:var(--warn)} .kpi.okk{--accent:var(--active)} .kpi.brandk{--accent:var(--brand)}
+  .kpi .k{font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:700; margin:0 0 6px}
+  .kpi .v{font-family:var(--mono); font-size:1.7rem; font-weight:700; line-height:1; font-variant-numeric:tabular-nums}
+  .kpi.alert .v{color:var(--gap)} .kpi.warnk .v{color:var(--warn)}
+  .kpi .sub{font-size:.74rem; color:var(--muted); margin:6px 0 0}
+
+  .bar{display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px}
+  .tabs{display:inline-flex; background:var(--surface-3); border:1px solid var(--line); border-radius:10px; padding:3px}
+  .tabs button{font:inherit; font-weight:600; font-size:.85rem; color:var(--muted); background:transparent; border:0; padding:8px 15px; border-radius:7px; cursor:pointer}
+  .tabs button[aria-selected="true"]{color:var(--ink); background:var(--surface); box-shadow:var(--shadow)}
+  .spacer{flex:1 1 auto}
+  .btn{font:inherit; font-size:.82rem; font-weight:600; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:8px 13px; cursor:pointer; display:inline-flex; align-items:center; gap:7px}
+  .btn:hover{border-color:var(--line-strong); background:var(--surface-2)}
+  .btn svg{width:14px; height:14px}
+  .btn.primary{background:var(--brand); border-color:transparent; color:#fff; width:100%; justify-content:center; padding:11px}
+  .btn.primary:hover{background:var(--brand-strong)}
+  .btn.mini{width:auto; padding:8px 13px}
+  .btn.danger:hover{border-color:var(--gap); color:var(--gap)}
+  button:focus-visible, .cell:focus-visible, .req:focus-visible, input:focus-visible, select:focus-visible{outline:none; box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 30%, transparent)}
+
+  .filters{display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:14px}
+  .chip{font:inherit; font-size:.78rem; font-weight:600; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:5px 12px; cursor:pointer}
+  .chip[aria-pressed="true"]{color:var(--brand-strong); background:var(--brand-soft); border-color:transparent}
+  .chip.gapfilter[aria-pressed="true"]{color:var(--gap); background:var(--gap-soft)}
+  .filters .lbl{font-size:.74rem; color:var(--faint); font-weight:700; text-transform:uppercase; letter-spacing:.05em; margin-right:2px}
+
+  .panel{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden}
+  .table-wrap{overflow:auto; max-height:70vh}
+  table{border-collapse:separate; border-spacing:0; width:100%; font-size:.82rem}
+  thead th{position:sticky; top:0; z-index:3; background:var(--surface-2); color:var(--muted); font-weight:700; font-size:.66rem; letter-spacing:.04em; text-transform:uppercase; padding:9px 8px; border-bottom:1px solid var(--line-strong); white-space:nowrap; text-align:center}
+  th .yr, td .yr{display:block; color:var(--faint); font-weight:600; font-size:.9em}
+  th.stick, td.stick{position:sticky; left:0; z-index:2; text-align:left; background:var(--surface); padding-left:16px}
+  thead th.stick{z-index:4; background:var(--surface-2)}
+  td{padding:6px 8px; border-bottom:1px solid var(--line); text-align:center; vertical-align:middle}
+  tbody tr:hover td{background:var(--surface-2)} tbody tr:hover td.stick{background:var(--surface-2)}
+
+  .agrid th.stick, .agrid td.stick{min-width:120px}
+  .agrid td.role, .agrid td.proj2{min-width:118px}
+  select.sel{font:inherit; font-size:.8rem; padding:6px 7px; border:1px solid var(--line); border-radius:7px; background:var(--surface-2); color:var(--ink); max-width:160px; width:100%}
+  td.hrcell{padding:2px}
+  input.hr{width:46px; font-family:var(--mono); font-size:.8rem; text-align:right; padding:6px 5px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--ink); font-variant-numeric:tabular-nums; -moz-appearance:textfield}
+  input.hr::-webkit-outer-spin-button, input.hr::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+  input.hr:focus{border-color:var(--brand); background:var(--brand-soft)}
+  td.tot{font-family:var(--mono); font-weight:700; font-variant-numeric:tabular-nums}
+  .arow.gstart td{border-top:2px solid var(--line-strong)}
+  button.del{font:inherit; font-size:1rem; line-height:1; width:26px; height:26px; border-radius:6px; border:1px solid var(--line); background:var(--surface-2); color:var(--faint); cursor:pointer}
+  button.del:hover{border-color:var(--gap); color:var(--gap)}
+  .addwrap{padding:13px 16px; border-top:1px solid var(--line)}
+  .addform{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .addform .fl{font-size:.72rem; color:var(--faint); font-weight:700; text-transform:uppercase; letter-spacing:.05em; margin-right:2px}
+  .tin{font:inherit; font-size:.85rem; padding:8px 11px; border:1px solid var(--line); border-radius:8px; background:var(--surface-2); color:var(--ink); min-width:190px}
+  .tin:focus{border-color:var(--brand); outline:none}
+  .sel2{font:inherit; font-size:.85rem; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface-2); color:var(--ink)}
+
+  .pname{font-weight:600; color:var(--ink); display:flex; align-items:center; gap:8px}
+  .cat{width:8px; height:8px; border-radius:2px; flex:0 0 auto}
+  .cat.active{background:var(--brand)} .cat.upcoming{background:var(--warn)} .cat.small{background:var(--faint)} .cat.overhead{background:var(--line-strong)}
+  .catword{font-family:var(--mono); font-size:.62rem; text-transform:uppercase; letter-spacing:.05em; color:var(--faint)}
+  td.needs{white-space:nowrap; min-width:70px}
+  .req{font:inherit; font-family:var(--mono); font-weight:700; font-size:.72rem; width:24px; height:24px; border-radius:6px; cursor:pointer; margin:0 1px; border:1px solid var(--line); background:var(--surface-2); color:var(--faint)}
+  .req.on.s{background:var(--ss); border-color:transparent; color:#fff}
+  .req.on.p{background:var(--pm); border-color:transparent; color:#fff}
+  .req.off{opacity:.55; text-decoration:line-through}
+  td.mon{padding:3px}
+  .cell{width:100%; min-width:40px; height:34px; border-radius:7px; border:1px solid transparent; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:3px; padding:0}
+  .cell.inactive{border:1px dashed var(--line)}
+  .cell.inactive:hover{border-color:var(--brand); background:var(--brand-soft)}
+  .cell.active{background:var(--active-soft); border-color:var(--active-line)}
+  .cell.hasgap{background:var(--gap-soft); border-color:var(--gap-line); box-shadow:inset 0 0 0 1px var(--gap-line)}
+  .badge{font-family:var(--mono); font-weight:700; font-size:.66rem; width:17px; height:17px; border-radius:5px; display:flex; align-items:center; justify-content:center; color:#fff}
+  .badge.s.ok{background:var(--ss)} .badge.p.ok{background:var(--pm)} .badge.gap{background:var(--gap)}
+  td.gapcount{font-family:var(--mono); font-weight:700; font-variant-numeric:tabular-nums; color:var(--gap)}
+  td.gapcount.zero{color:var(--faint); font-weight:400}
+
+  .util td.num{font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; padding-right:12px}
+  .util td.over{background:var(--gap-soft); color:var(--gap); font-weight:700}
+  .util td.under{background:var(--warn-soft); color:var(--warn)}
+  .util td.zero{color:var(--faint)}
+  .util td.role{text-align:left; color:var(--muted); font-size:.78rem}
+  .util .avgbar{display:flex; align-items:center; gap:8px; justify-content:flex-end}
+  .util .track{width:60px; height:7px; border-radius:99px; background:var(--surface-3); overflow:hidden}
+  .util .fill{height:100%; border-radius:99px}
+  .util .pct{font-family:var(--mono); font-variant-numeric:tabular-nums; min-width:42px; text-align:right}
+
+  .legend{display:flex; flex-wrap:wrap; gap:16px 22px; padding:14px 4px 2px; font-size:.78rem; color:var(--muted)}
+  .legend div{display:flex; align-items:center; gap:7px}
+  .lg{width:15px; height:15px; border-radius:4px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:.6rem; font-weight:700; color:#fff}
+  .lg.act{background:var(--active-soft); border:1px solid var(--active-line)} .lg.gp{background:var(--gap-soft); border:1px solid var(--gap-line)}
+  .help{font-size:.82rem; color:var(--muted); margin:0 0 14px; padding:11px 14px; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm)}
+  .help b{color:var(--ink)}
+  .foot{font-size:.74rem; color:var(--faint); margin-top:16px; text-align:center}
+  @media print{ .bar,.filters,.btn,.tabs,.help,.foot,.addwrap,.del,.sync{display:none !important} .table-wrap{max-height:none; overflow:visible} .panel{box-shadow:none; border-color:#bbb} }
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate">
+  <div class="gatecard">
+    <p class="eyebrow">Bancroft Construction · Project Management</p>
+    <h1>Staffing &amp; Schedule Planner</h1>
+    <p class="gsub">Shared team planner — everyone edits the same live schedule. Enter your name and the team passcode to continue.</p>
+    <label>Your name<input id="gateName" placeholder="e.g. David" autocomplete="name"></label>
+    <label>Team passcode<input id="gatePass" type="password" placeholder="passcode"></label>
+    <button id="gateBtn" class="btn primary">Open the planner</button>
+    <p id="gateErr" class="gerr"></p>
+  </div>
+</div>
+
+<div class="app" id="approot" style="visibility:hidden">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Bancroft Construction · Project Management</p>
+      <h1>Staffing &amp; Schedule Planner</h1>
+    </div>
+    <div class="mhr">
+      <div class="horizon">Jul 2026 → Jun 2027 · 12-month horizon</div>
+      <div class="sync" id="sync">● Connecting…</div>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+  <p class="help" id="help"></p>
+
+  <div class="bar">
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-assign" aria-selected="true">Assignments</button>
+      <button role="tab" id="tab-sched" aria-selected="false">Schedule &amp; Coverage</button>
+      <button role="tab" id="tab-util" aria-selected="false">Utilization &amp; People</button>
+    </div>
+    <span class="spacer"></span>
+    <button class="btn mini" id="csv">Export CSV</button>
+    <button class="btn mini" id="print">Print</button>
+    <button class="btn mini danger" id="reset">Reset to plan</button>
+  </div>
+
+  <section id="view-assign">
+    <div class="panel"><div class="table-wrap"><table class="agrid" id="assign"><thead></thead><tbody></tbody></table></div>
+      <div class="addwrap"><button class="btn primary mini" id="add">+ Add assignment</button></div>
+    </div>
+    <div class="legend"><div>Type <b style="color:var(--ink)">hours</b> in any cell. Change <b style="color:var(--ink)">Employee / Role / Project</b> to reassign. Add people &amp; projects on the other tabs.</div></div>
+  </section>
+
+  <section id="view-sched" class="hide">
+    <div class="filters" id="filters">
+      <span class="lbl">Show</span>
+      <button class="chip" data-cat="active" aria-pressed="true">Active</button>
+      <button class="chip" data-cat="upcoming" aria-pressed="true">Upcoming</button>
+      <button class="chip" data-cat="small" aria-pressed="false">Small jobs</button>
+      <button class="chip" data-cat="overhead" aria-pressed="false">Overhead</button>
+      <span class="spacer"></span>
+      <button class="chip gapfilter" id="onlygaps" aria-pressed="false">⚠ Only coverage gaps</button>
+    </div>
+    <div class="panel"><div class="table-wrap"><table id="sched"><thead></thead><tbody></tbody></table></div>
+      <div class="addwrap"><div class="addform">
+        <span class="fl">Add project</span>
+        <input class="tin" id="newProjName" placeholder="Project name (e.g. 88 Maple)">
+        <select class="sel2" id="newProjCat"><option value="active">Active</option><option value="upcoming">Upcoming</option><option value="small">Small job</option><option value="overhead">Overhead</option></select>
+        <button class="btn mini" id="addProj">+ Add project</button>
+      </div></div>
+    </div>
+    <div class="legend">
+      <div><span class="lg act"></span> Active month (click to toggle)</div>
+      <div><span class="lg" style="background:var(--ss)">S</span> Site Supervisor staffed</div>
+      <div><span class="lg" style="background:var(--pm)">P</span> Project Manager staffed</div>
+      <div><span class="lg gp"></span><span class="lg" style="background:var(--gap)">S</span> Required role missing — a gap</div>
+    </div>
+  </section>
+
+  <section id="view-util" class="hide">
+    <div class="panel util"><div class="table-wrap"><table id="util"><thead></thead><tbody></tbody></table></div>
+      <div class="addwrap"><div class="addform">
+        <span class="fl">Add employee</span>
+        <input class="tin" id="newEmpName" placeholder="Employee name">
+        <select class="sel2" id="newEmpRole"></select>
+        <button class="btn mini" id="addEmp">+ Add employee</button>
+      </div></div>
+    </div>
+    <div class="legend">
+      <div><span class="lg" style="background:var(--gap)"></span> Over capacity (&gt;160 h/mo)</div>
+      <div><span class="lg" style="background:var(--warn)"></span> Light month (&lt;120 h)</div>
+      <div>Capacity assumed 160 h/employee/month.</div>
+    </div>
+  </section>
+
+  <p class="foot">Shared planner · changes sync live for everyone with the link. Data stored in your team's private database.</p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // ---- config ----
+  var SUPABASE_URL="https://inzfsmqqvpkrreypvciw.supabase.co";
+  var SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImluemZzbXFxdnBrcnJleXB2Y2l3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MTI2MjQsImV4cCI6MjEwMDM4ODYyNH0._6Y-jGkf4wv6cEL51mGCCnt2_SXN2cNglovdrHtkzQU";
+  var PASSCODE="bancroft2026";
+
+  var MONTHS=["Jul-26","Aug-26","Sep-26","Oct-26","Nov-26","Dec-26","Jan-27","Feb-27","Mar-27","Apr-27","May-27","Jun-27"];
+  var CAP=160;
+  var ROLES=["Site Supervision","Project Manager","Carpentry","Small job","Other"];
+  function zeros(){return [0,0,0,0,0,0,0,0,0,0,0,0];}
+
+  var db=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {realtime:{params:{eventsPerSecond:5}}});
+  var clientId="c"+Date.now()+"-"+Math.floor(Math.random()*1e6);
+  var myName="";
+  var state=null, nextId=0;
+  var pendingRemote=null, saveTimer=null;
+
+  var el=function(id){return document.getElementById(id);};
+  function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function toNum(v){ var n=parseFloat(v); return (isNaN(n)||n<0)?0:n; }
+  function abbr(m){ var p=m.split("-"); return p[0]+"<span class='yr'>'"+p[1]+"</span>"; }
+  function empNames(){ return state.employees.map(function(e){return e.name;}); }
+  function projNames(){ return state.projects.map(function(p){return p.name;}); }
+  function projByName(n){ for(var i=0;i<state.projects.length;i++){ if(state.projects[i].name===n) return state.projects[i]; } return null; }
+  function ensureShape(s){ if(!s.employees)s.employees=[]; if(!s.projects)s.projects=[]; if(!s.assignments)s.assignments=[]; }
+  function computeNextId(){ return state.assignments.reduce(function(mx,a){return Math.max(mx,a.id);},-1)+1; }
+
+  // ---- sync ----
+  function setStatus(kind,who){
+    var e=el("sync"); if(!e) return;
+    var m={ saving:["var(--warn)","Saving…"], synced:["var(--active)","Synced"+(who&&who!=="you"?" · last edit by "+esc(who):"")],
+      error:["var(--gap)","Offline — retrying…"], remote:["var(--brand)",(who?esc(who):"Someone")+" is editing — refreshing when you pause"] };
+    var s=m[kind]||m.synced; e.innerHTML="<span style='color:"+s[0]+"'>●</span> "+s[1];
+  }
+  function queueSave(){ setStatus("saving"); clearTimeout(saveTimer); saveTimer=setTimeout(pushSave,500); }
+  function pushSave(){
+    if(!state) return;
+    state._origin=clientId; state._by=myName;
+    db.from("plan").update({data:state, updated_by:myName, updated_at:new Date().toISOString()}).eq("id",1).then(function(res){
+      if(res.error){ setStatus("error"); clearTimeout(saveTimer); saveTimer=setTimeout(pushSave,3000); }
+      else setStatus("synced","you");
+    });
+  }
+  function isEditing(){ var a=document.activeElement; return !!(a && (a.tagName==="INPUT"||a.tagName==="SELECT")); }
+  function applyRemote(row){
+    state=row.data; ensureShape(state); nextId=computeNextId();
+    renderKPIs(); renderCurrent(); setStatus("synced", row.updated_by||"someone");
+  }
+  function onRemote(row){
+    if(row.data && row.data._origin===clientId){ setStatus("synced","you"); return; }
+    if(isEditing()){ pendingRemote=row; setStatus("remote", row.updated_by); }
+    else applyRemote(row);
+  }
+  document.addEventListener("focusout", function(){ setTimeout(function(){ if(pendingRemote && !isEditing()){ var r=pendingRemote; pendingRemote=null; applyRemote(r); } },160); });
+
+  function subscribe(){
+    db.channel("plan-live")
+      .on("postgres_changes", {event:"UPDATE", schema:"public", table:"plan", filter:"id=eq.1"}, function(p){ onRemote(p.new); })
+      .subscribe(function(status){
+        if(status==="SUBSCRIBED"){ if(!isEditing()) setStatus("synced"); }
+        else if(status==="CHANNEL_ERROR"||status==="TIMED_OUT") setStatus("error");
+      });
+  }
+  function boot(){
+    setStatus("saving");
+    db.from("plan").select("data,updated_by").eq("id",1).single().then(function(res){
+      if(res.error||!res.data){ el("sync").textContent="Couldn't load plan — refresh the page"; return; }
+      state=res.data.data; ensureShape(state); nextId=computeNextId();
+      el("approot").style.visibility="visible";
+      renderKPIs(); selectTab("assign"); setStatus("synced", res.data.updated_by);
+      subscribe();
+    });
+  }
+
+  // ---- render ----
+  function tile(cls,v,k,sub){ return '<div class="kpi '+cls+'"><p class="k">'+k+'</p><div class="v">'+v+'</div><p class="sub">'+sub+'</p></div>'; }
+  function derive(){
+    var ss={},pm={},emp={},m;
+    state.projects.forEach(function(p){ ss[p.name]=zeros(); pm[p.name]=zeros(); });
+    state.employees.forEach(function(e){ emp[e.name]=zeros(); });
+    state.assignments.forEach(function(a){
+      var h=a.hours;
+      if(a.project){
+        if(a.role==="Site Supervision"&&ss[a.project]){ for(m=0;m<12;m++) ss[a.project][m]+=toNum(h[m]); }
+        else if(a.role==="Project Manager"&&pm[a.project]){ for(m=0;m<12;m++) pm[a.project][m]+=toNum(h[m]); }
+      }
+      if(a.emp&&emp[a.emp]){ for(m=0;m<12;m++) emp[a.emp][m]+=toNum(h[m]); }
+    });
+    return {ss:ss,pm:pm,emp:emp};
+  }
+  function whoOn(project,role,m){ var n=[]; state.assignments.forEach(function(a){ if(a.project===project&&a.role===role&&toNum(a.hours[m])>0) n.push(a.emp||"(unnamed)"); }); return n; }
+  function gapsFor(p,D){ var ss=[],pm=[]; for(var m=0;m<12;m++){ if(!p.active[m])continue; if(p.needsSS&&(D.ss[p.name]?D.ss[p.name][m]:0)<=0)ss.push(m); if(p.needsPM&&(D.pm[p.name]?D.pm[p.name][m]:0)<=0)pm.push(m); } return {ss:ss,pm:pm,total:ss.length+pm.length}; }
+  function totals(){
+    var D=derive(),gaps=0,projGaps=0,activeProjects=0;
+    state.projects.forEach(function(p){ var g=gapsFor(p,D); gaps+=g.total; if(g.total>0)projGaps++; if(p.active.some(function(x){return x;}))activeProjects++; });
+    var over=0; state.employees.forEach(function(e){ if(D.emp[e.name]&&D.emp[e.name].some(function(h){return h>CAP;}))over++; });
+    return {gaps:gaps,projGaps:projGaps,activeProjects:activeProjects,over:over};
+  }
+  function renderKPIs(){
+    var t=totals();
+    el("kpis").innerHTML=
+      tile(t.gaps>0?"alert":"okk",t.gaps,"Coverage gaps",t.gaps>0?"active months missing a required role":"every active month is covered")+
+      tile(t.projGaps>0?"alert":"okk",t.projGaps,"Projects affected","have at least one gap")+
+      tile(t.over>0?"warnk":"okk",t.over,"People over capacity","some month above 160 h")+
+      tile("brandk",t.activeProjects,"Active projects","with a scheduled month");
+  }
+  var HELP={
+    assign:"<b>Assignments:</b> type <b>hours</b> into any month cell. Change the <b>Employee</b>, <b>Role</b>, or <b>Project</b> dropdown to reassign. <b>+ Add assignment</b> for a new job, <b>×</b> to remove. Everything syncs to your team live.",
+    sched:"<b>Schedule &amp; Coverage:</b> click a month to toggle a project <b>active</b> (green). <b>S</b>/<b>P</b> set whether it needs a Site Supervisor or Project Manager; any active month missing a required role turns <b>red</b>. Add/remove projects at the bottom.",
+    util:"<b>Utilization &amp; People:</b> each employee's planned hours vs. 160 h/month (red = over, amber = light). Add/remove employees at the bottom."
+  };
+  function opts(list,val){ return list.map(function(o){ return "<option"+(o===val?" selected":"")+">"+esc(o)+"</option>"; }).join(""); }
+
+  function renderAssign(){
+    var head="<tr><th class='stick'>Employee</th><th>Role</th><th>Project</th>";
+    MONTHS.forEach(function(m){ head+="<th>"+abbr(m)+"</th>"; }); head+="<th>Total</th><th></th></tr>";
+    el("assign").tHead.innerHTML=head;
+    var names=empNames(), pnames=projNames();
+    var rows=state.assignments.slice().sort(function(a,b){ var ea=a.emp||"~~",eb=b.emp||"~~"; if(ea!==eb)return ea<eb?-1:1; var pa=a.project||"~~",pb=b.project||"~~"; return pa<pb?-1:(pa>pb?1:0); });
+    var body="",lastEmp=" ";
+    rows.forEach(function(a){
+      var gs=(a.emp!==lastEmp); lastEmp=a.emp;
+      var total=a.hours.reduce(function(x,y){return x+toNum(y);},0);
+      var tr="<tr class='arow"+(gs?" gstart":"")+"'>";
+      tr+="<td class='stick'><select class='sel' data-id='"+a.id+"' data-f='emp'><option value=''>— unassigned —</option>"+opts(names,a.emp)+"</select></td>";
+      tr+="<td class='role'><select class='sel' data-id='"+a.id+"' data-f='role'>"+opts(ROLES,a.role)+"</select></td>";
+      tr+="<td class='proj2'><select class='sel' data-id='"+a.id+"' data-f='project'><option value=''>— none —</option>"+opts(pnames,a.project)+"</select></td>";
+      for(var m=0;m<12;m++){ tr+="<td class='hrcell'><input class='hr' type='number' min='0' step='5' data-id='"+a.id+"' data-m='"+m+"' value='"+(a.hours[m]||"")+"'></td>"; }
+      tr+="<td class='tot' id='tot-"+a.id+"'>"+(total||"")+"</td>";
+      tr+="<td><button class='del' data-id='"+a.id+"' title='Remove'>×</button></td></tr>";
+      body+=tr;
+    });
+    el("assign").tBodies[0].innerHTML=body;
+  }
+  function findA(id){ for(var i=0;i<state.assignments.length;i++){ if(state.assignments[i].id==id) return state.assignments[i]; } return null; }
+
+  var catFilter={active:true,upcoming:true,small:false,overhead:false}, onlyGaps=false;
+  function renderSched(){
+    var D=derive();
+    var head="<tr><th class='stick'>Project</th><th>Needs</th>";
+    MONTHS.forEach(function(m){ head+="<th>"+abbr(m)+"</th>"; }); head+="<th>Gaps</th><th></th></tr>";
+    el("sched").tHead.innerHTML=head;
+    var body="";
+    state.projects.forEach(function(p){
+      if(!catFilter[p.category]) return;
+      var g=gapsFor(p,D); if(onlyGaps&&g.total===0) return;
+      var row="<tr><td class='stick'><div class='pname'><span class='cat "+p.category+"'></span>"+esc(p.name)+"</div><span class='catword'>"+p.category+"</span></td>";
+      row+="<td class='needs'><button class='req s "+(p.needsSS?'on':'off')+"' data-p='"+esc(p.name)+"' data-req='ss'>S</button><button class='req p "+(p.needsPM?'on':'off')+"' data-p='"+esc(p.name)+"' data-req='pm'>P</button></td>";
+      for(var m=0;m<12;m++){
+        var active=p.active[m], ssH=D.ss[p.name][m], pmH=D.pm[p.name][m];
+        var ssGap=active&&p.needsSS&&ssH<=0, pmGap=active&&p.needsPM&&pmH<=0, badges="";
+        if(active){ if(p.needsSS)badges+="<span class='badge s "+(ssH>0?'ok':'gap')+"'>S</span>"; if(p.needsPM)badges+="<span class='badge p "+(pmH>0?'ok':'gap')+"'>P</span>"; }
+        var cls="cell "+(active?"active":"inactive")+((ssGap||pmGap)?" hasgap":"");
+        var sw=whoOn(p.name,"Site Supervision",m), pw=whoOn(p.name,"Project Manager",m);
+        var tip=MONTHS[m]+" — "+(active?"active":"not active")+" | SS: "+(sw.length?sw.join(", ")+" ("+ssH+"h)":(p.needsSS&&active?"none — needed":"—"))+" | PM: "+(pw.length?pw.join(", ")+" ("+pmH+"h)":(p.needsPM&&active?"none — needed":"—"));
+        row+="<td class='mon'><button class='"+cls+"' data-p='"+esc(p.name)+"' data-m='"+m+"' title='"+esc(tip)+"'>"+badges+"</button></td>";
+      }
+      row+="<td class='gapcount"+(g.total===0?" zero":"")+"'>"+(g.total||"·")+"</td><td><button class='del' data-rmproj='"+esc(p.name)+"' title='Remove project'>×</button></td></tr>";
+      body+=row;
+    });
+    if(!body) body="<tr><td class='stick'>—</td><td colspan='15' style='text-align:left;color:var(--muted);padding-left:12px'>No projects match the current filters.</td></tr>";
+    el("sched").tBodies[0].innerHTML=body;
+  }
+  function renderUtil(){
+    var D=derive();
+    var head="<tr><th class='stick'>Employee</th><th style='text-align:left'>Primary role</th><th>Cap</th>";
+    MONTHS.forEach(function(m){ head+="<th>"+abbr(m)+"</th>"; }); head+="<th>Total</th><th>Avg util</th><th></th></tr>";
+    el("util").tHead.innerHTML=head;
+    var body="";
+    state.employees.forEach(function(e){
+      var name=e.name, hrs=D.emp[name]||zeros(), total=hrs.reduce(function(a,b){return a+b;},0), role=e.role;
+      if(!role){ var rc={}; state.assignments.forEach(function(a){ if(a.emp===name&&a.role)rc[a.role]=(rc[a.role]||0)+1; }); role=Object.keys(rc).sort(function(x,y){return rc[y]-rc[x];})[0]||"—"; }
+      var avg=total/(CAP*12), pct=Math.round(avg*100), w=Math.min(100,pct), col=avg>1?"var(--gap)":(avg<0.6?"var(--warn)":"var(--active)");
+      var row="<tr><td class='stick'><div class='pname'>"+esc(name)+"</div></td><td class='role'>"+esc(role)+"</td><td class='num'>"+CAP+"</td>";
+      hrs.forEach(function(h){ var c="num"; if(h>CAP)c+=" over"; else if(h>0&&h<120)c+=" under"; else if(h===0)c+=" zero"; row+="<td class='"+c+"'>"+(h||"·")+"</td>"; });
+      row+="<td class='num'>"+total+"</td><td><div class='avgbar'><span class='pct'>"+pct+"%</span><span class='track'><span class='fill' style='width:"+w+"%;background:"+col+"'></span></span></div></td>";
+      row+="<td><button class='del' data-rmemp='"+esc(name)+"' title='Remove employee'>×</button></td></tr>";
+      body+=row;
+    });
+    el("util").tBodies[0].innerHTML=body;
+  }
+
+  var current="assign";
+  function renderCurrent(){ if(current==="assign")renderAssign(); else if(current==="sched")renderSched(); else renderUtil(); }
+  function selectTab(t){
+    current=t;
+    el("tab-assign").setAttribute("aria-selected",t==="assign");
+    el("tab-sched").setAttribute("aria-selected",t==="sched");
+    el("tab-util").setAttribute("aria-selected",t==="util");
+    el("view-assign").classList.toggle("hide",t!=="assign");
+    el("view-sched").classList.toggle("hide",t!=="sched");
+    el("view-util").classList.toggle("hide",t!=="util");
+    el("help").innerHTML=HELP[t];
+    renderCurrent();
+  }
+
+  // ---- events (wired once; safe before boot) ----
+  el("tab-assign").onclick=function(){selectTab("assign");};
+  el("tab-sched").onclick=function(){selectTab("sched");};
+  el("tab-util").onclick=function(){selectTab("util");};
+
+  el("assign").tBodies[0].addEventListener("input",function(ev){
+    var t=ev.target; if(!t.classList.contains("hr"))return; var a=findA(t.dataset.id); if(!a)return;
+    a.hours[+t.dataset.m]=toNum(t.value); var tot=a.hours.reduce(function(x,y){return x+toNum(y);},0);
+    var tc=el("tot-"+a.id); if(tc)tc.textContent=tot||""; renderKPIs(); queueSave();
+  });
+  el("assign").tBodies[0].addEventListener("change",function(ev){
+    var t=ev.target; if(!t.classList.contains("sel"))return; var a=findA(t.dataset.id); if(!a)return;
+    a[t.dataset.f]=t.value; renderKPIs(); renderAssign(); queueSave();
+  });
+  el("assign").tBodies[0].addEventListener("click",function(ev){
+    var b=ev.target.closest(".del"); if(!b)return;
+    state.assignments=state.assignments.filter(function(a){return a.id!=b.dataset.id;}); renderKPIs(); renderAssign(); queueSave();
+  });
+  el("add").onclick=function(){ state.assignments.push({id:nextId++,emp:"",role:"Site Supervision",project:"",hours:zeros()}); renderAssign(); queueSave(); var w=el("assign").parentNode; w.scrollTop=w.scrollHeight; };
+
+  el("sched").tBodies[0].addEventListener("click",function(ev){
+    var del=ev.target.closest(".del"); if(del){ removeProject(del.dataset.rmproj); return; }
+    var cell=ev.target.closest(".cell"); if(cell){ var p=projByName(cell.dataset.p); if(p){ var m=+cell.dataset.m; p.active[m]=p.active[m]?0:1; renderSched(); renderKPIs(); queueSave(); } return; }
+    var req=ev.target.closest(".req"); if(req){ var p2=projByName(req.dataset.p); if(p2){ if(req.dataset.req==="ss")p2.needsSS=!p2.needsSS; else p2.needsPM=!p2.needsPM; renderSched(); renderKPIs(); queueSave(); } }
+  });
+  el("filters").addEventListener("click",function(ev){
+    var chip=ev.target.closest(".chip"); if(!chip)return;
+    if(chip.id==="onlygaps"){ onlyGaps=!onlyGaps; chip.setAttribute("aria-pressed",onlyGaps); }
+    else { catFilter[chip.dataset.cat]=!catFilter[chip.dataset.cat]; chip.setAttribute("aria-pressed",catFilter[chip.dataset.cat]); }
+    renderSched();
+  });
+  function removeProject(name){
+    if(!confirm('Remove project "'+name+'" for everyone? Its assignments will be set to no project.'))return;
+    state.projects=state.projects.filter(function(p){return p.name!==name;});
+    state.assignments.forEach(function(a){ if(a.project===name)a.project=""; });
+    renderKPIs(); renderSched(); queueSave();
+  }
+  el("addProj").onclick=function(){
+    var name=el("newProjName").value.trim(), cat=el("newProjCat").value;
+    if(!name){ alert("Enter a project name first."); return; }
+    if(state.projects.some(function(p){return p.name.toLowerCase()===name.toLowerCase();})){ alert("A project with that name already exists."); return; }
+    var need=(cat==="active"||cat==="upcoming");
+    state.projects.push({name:name,category:cat,active:zeros(),needsSS:need,needsPM:need});
+    catFilter[cat]=true; var chip=document.querySelector('.chip[data-cat="'+cat+'"]'); if(chip)chip.setAttribute("aria-pressed","true");
+    el("newProjName").value=""; renderKPIs(); renderSched(); queueSave();
+  };
+  el("util").tBodies[0].addEventListener("click",function(ev){ var d=ev.target.closest(".del"); if(d)removeEmployee(d.dataset.rmemp); });
+  function removeEmployee(name){
+    if(!confirm('Remove employee "'+name+'" for everyone? Their assignments will be set to unassigned.'))return;
+    state.employees=state.employees.filter(function(e){return e.name!==name;});
+    state.assignments.forEach(function(a){ if(a.emp===name)a.emp=""; });
+    renderKPIs(); renderUtil(); queueSave();
+  }
+  el("newEmpRole").innerHTML=opts(ROLES,"Site Supervision");
+  el("addEmp").onclick=function(){
+    var name=el("newEmpName").value.trim(), role=el("newEmpRole").value;
+    if(!name){ alert("Enter an employee name first."); return; }
+    if(state.employees.some(function(e){return e.name.toLowerCase()===name.toLowerCase();})){ alert("An employee with that name already exists."); return; }
+    state.employees.push({name:name,role:role}); el("newEmpName").value=""; renderKPIs(); renderUtil(); queueSave();
+  };
+
+  el("reset").onclick=function(){
+    if(!confirm("Reset the plan back to the original spreadsheet — FOR EVERYONE? This replaces the current shared schedule.")) return;
+    db.from("plan").select("data").eq("id",0).single().then(function(res){
+      if(res.error||!res.data){ alert("Couldn't load the original template."); return; }
+      state=res.data.data; ensureShape(state); nextId=computeNextId(); renderKPIs(); renderCurrent(); queueSave();
+    });
+  };
+  el("print").onclick=function(){ window.print(); };
+  el("csv").onclick=function(){
+    var rows,fname;
+    if(current==="assign"){
+      fname="labor-plan.csv"; rows=[["Employee","Role","Project"].concat(MONTHS).concat(["Total"])];
+      state.assignments.slice().sort(function(a,b){return (a.emp||"~")<(b.emp||"~")?-1:1;}).forEach(function(a){ var tot=a.hours.reduce(function(x,y){return x+toNum(y);},0); rows.push([a.emp,a.role,a.project].concat(a.hours.map(function(h){return toNum(h);})).concat([tot])); });
+    } else {
+      var D=derive(); fname="staffing-coverage.csv"; rows=[["Project","Category","Needs SS","Needs PM","Total gaps"].concat(MONTHS)];
+      state.projects.forEach(function(p){ if(!catFilter[p.category])return; var g=gapsFor(p,D); if(onlyGaps&&g.total===0)return; var r=[p.name,p.category,p.needsSS?"Yes":"No",p.needsPM?"Yes":"No",g.total]; for(var m=0;m<12;m++){ if(!p.active[m]){r.push("");continue;} var pr=[]; if(p.needsSS)pr.push(D.ss[p.name][m]>0?"SS ok":"SS GAP"); if(p.needsPM)pr.push(D.pm[p.name][m]>0?"PM ok":"PM GAP"); r.push("active"+(pr.length?" ("+pr.join("; ")+")":"")); } rows.push(r); });
+    }
+    var csv=rows.map(function(r){ return r.map(function(c){ c=String(c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(","); }).join("\n");
+    var blob=new Blob([csv],{type:"text/csv"}), url=URL.createObjectURL(blob), aa=document.createElement("a");
+    aa.href=url; aa.download=fname; document.body.appendChild(aa); aa.click(); document.body.removeChild(aa); setTimeout(function(){URL.revokeObjectURL(url);},1000);
+  };
+
+  // ---- gate ----
+  try{ myName=localStorage.getItem("bs_name")||""; }catch(e){}
+  el("gateName").value=myName;
+  function submitGate(){
+    var name=el("gateName").value.trim(), pass=el("gatePass").value;
+    if(!name){ el("gateErr").textContent="Please enter your name."; return; }
+    if(pass!==PASSCODE){ el("gateErr").textContent="Incorrect passcode — check with your team."; return; }
+    myName=name; try{ localStorage.setItem("bs_name",name); }catch(e){}
+    el("gate").classList.add("hide"); boot();
+  }
+  el("gateBtn").onclick=submitGate;
+  el("gatePass").addEventListener("keydown",function(e){ if(e.key==="Enter")submitGate(); });
+  el("gateName").addEventListener("keydown",function(e){ if(e.key==="Enter")el("gatePass").focus(); });
+  (el("gateName").value?el("gatePass"):el("gateName")).focus();
+})();
+</script>
+</body>
+</html>
