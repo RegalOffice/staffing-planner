@@ -50,7 +50,7 @@
   .horizon{font-family:var(--mono); font-size:.78rem; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:5px 13px; white-space:nowrap}
   .sync{font-size:.76rem; font-weight:600; display:flex; align-items:center; gap:6px; color:var(--muted)}
 
-  .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px}
+  .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px}
   @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr)} }
   .kpi{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow); position:relative; overflow:hidden}
   .kpi::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent,var(--brand))}
@@ -78,6 +78,7 @@
   .chip{font:inherit; font-size:.78rem; font-weight:600; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:5px 12px; cursor:pointer}
   .chip[aria-pressed="true"]{color:var(--brand-strong); background:var(--brand-soft); border-color:transparent}
   .chip.gapfilter[aria-pressed="true"]{color:var(--gap); background:var(--gap-soft)}
+  .chip.offfilter[aria-pressed="true"]{color:var(--warn); background:var(--warn-soft)}
   .filters .lbl{font-size:.74rem; color:var(--faint); font-weight:700; text-transform:uppercase; letter-spacing:.05em; margin-right:2px}
 
   .panel{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden}
@@ -123,8 +124,10 @@
   .cell.inactive:hover{border-color:var(--brand); background:var(--brand-soft)}
   .cell.active{background:var(--active-soft); border-color:var(--active-line)}
   .cell.hasgap{background:var(--gap-soft); border-color:var(--gap-line); box-shadow:inset 0 0 0 1px var(--gap-line)}
+  .cell.offsched{background:var(--warn-soft); border:1px dashed var(--warn)}
+  .cell.offsched:hover{border-color:var(--warn)}
   .badge{font-family:var(--mono); font-weight:700; font-size:.66rem; width:17px; height:17px; border-radius:5px; display:flex; align-items:center; justify-content:center; color:#fff}
-  .badge.s.ok{background:var(--ss)} .badge.p.ok{background:var(--pm)} .badge.gap{background:var(--gap)}
+  .badge.s.ok{background:var(--ss)} .badge.p.ok{background:var(--pm)} .badge.gap{background:var(--gap)} .badge.off{background:transparent; color:var(--warn); border:1px solid var(--warn)}
   td.gapcount{font-family:var(--mono); font-weight:700; font-variant-numeric:tabular-nums; color:var(--gap)}
   td.gapcount.zero{color:var(--faint); font-weight:400}
 
@@ -141,7 +144,7 @@
   .legend{display:flex; flex-wrap:wrap; gap:16px 22px; padding:14px 4px 2px; font-size:.78rem; color:var(--muted)}
   .legend div{display:flex; align-items:center; gap:7px}
   .lg{width:15px; height:15px; border-radius:4px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:.6rem; font-weight:700; color:#fff}
-  .lg.act{background:var(--active-soft); border:1px solid var(--active-line)} .lg.gp{background:var(--gap-soft); border:1px solid var(--gap-line)}
+  .lg.act{background:var(--active-soft); border:1px solid var(--active-line)} .lg.gp{background:var(--gap-soft); border:1px solid var(--gap-line)} .lg.off{background:var(--warn-soft); border:1px dashed var(--warn)}
   .help{font-size:.82rem; color:var(--muted); margin:0 0 14px; padding:11px 14px; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm)}
   .help b{color:var(--ink)}
   .foot{font-size:.74rem; color:var(--faint); margin-top:16px; text-align:center}
@@ -205,6 +208,7 @@
       <button class="chip" data-cat="overhead" aria-pressed="false">Overhead</button>
       <span class="spacer"></span>
       <button class="chip gapfilter" id="onlygaps" aria-pressed="false">⚠ Only coverage gaps</button>
+      <button class="chip offfilter" id="onlyoff" aria-pressed="false">▨ Only off-schedule</button>
     </div>
     <div class="panel"><div class="table-wrap"><table id="sched"><thead></thead><tbody></tbody></table></div>
       <div class="addwrap"><div class="addform">
@@ -219,6 +223,7 @@
       <div><span class="lg" style="background:var(--ss)">S</span> Site Supervisor staffed</div>
       <div><span class="lg" style="background:var(--pm)">P</span> Project Manager staffed</div>
       <div><span class="lg gp"></span><span class="lg" style="background:var(--gap)">S</span> Required role missing — a gap</div>
+      <div><span class="lg off"></span> Staffed but not marked active — off-schedule (click to fix)</div>
     </div>
   </section>
 
@@ -335,17 +340,19 @@
   }
   function whoOn(project,role,m){ var n=[]; state.assignments.forEach(function(a){ if(a.project===project&&a.role===role&&toNum(a.hours[m])>0) n.push(a.emp||"(unnamed)"); }); return n; }
   function gapsFor(p,D){ var ss=[],pm=[]; for(var m=0;m<12;m++){ if(!p.active[m])continue; if(p.needsSS&&(D.ss[p.name]?D.ss[p.name][m]:0)<=0)ss.push(m); if(p.needsPM&&(D.pm[p.name]?D.pm[p.name][m]:0)<=0)pm.push(m); } return {ss:ss,pm:pm,total:ss.length+pm.length}; }
+  function offSchedFor(p,D){ var out=[]; if(p.category==="overhead") return out; for(var m=0;m<12;m++){ if(!p.active[m] && (((D.ss[p.name]?D.ss[p.name][m]:0)>0)||((D.pm[p.name]?D.pm[p.name][m]:0)>0))) out.push(m); } return out; }
   function totals(){
-    var D=derive(),gaps=0,projGaps=0,activeProjects=0;
-    state.projects.forEach(function(p){ var g=gapsFor(p,D); gaps+=g.total; if(g.total>0)projGaps++; if(p.active.some(function(x){return x;}))activeProjects++; });
+    var D=derive(),gaps=0,projGaps=0,activeProjects=0,off=0;
+    state.projects.forEach(function(p){ var g=gapsFor(p,D); gaps+=g.total; if(g.total>0)projGaps++; if(p.active.some(function(x){return x;}))activeProjects++; off+=offSchedFor(p,D).length; });
     var over=0; state.employees.forEach(function(e){ if(D.emp[e.name]&&D.emp[e.name].some(function(h){return h>CAP;}))over++; });
-    return {gaps:gaps,projGaps:projGaps,activeProjects:activeProjects,over:over};
+    return {gaps:gaps,projGaps:projGaps,activeProjects:activeProjects,over:over,off:off};
   }
   function renderKPIs(){
     var t=totals();
     el("kpis").innerHTML=
       tile(t.gaps>0?"alert":"okk",t.gaps,"Coverage gaps",t.gaps>0?"active months missing a required role":"every active month is covered")+
       tile(t.projGaps>0?"alert":"okk",t.projGaps,"Projects affected","have at least one gap")+
+      tile(t.off>0?"warnk":"okk",t.off,"Off-schedule",t.off>0?"months staffed but not marked active":"hours match the schedule")+
       tile(t.over>0?"warnk":"okk",t.over,"People over capacity","some month above 160 h")+
       tile("brandk",t.activeProjects,"Active projects","with a scheduled month");
   }
@@ -379,7 +386,7 @@
   }
   function findA(id){ for(var i=0;i<state.assignments.length;i++){ if(state.assignments[i].id==id) return state.assignments[i]; } return null; }
 
-  var catFilter={active:true,upcoming:true,small:false,overhead:false}, onlyGaps=false;
+  var catFilter={active:true,upcoming:true,small:false,overhead:false}, onlyGaps=false, onlyOff=false;
   function renderSched(){
     var D=derive();
     var head="<tr><th class='stick'>Project</th><th>Needs</th>";
@@ -388,16 +395,19 @@
     var body="";
     state.projects.forEach(function(p){
       if(!catFilter[p.category]) return;
-      var g=gapsFor(p,D); if(onlyGaps&&g.total===0) return;
+      var g=gapsFor(p,D), offm=offSchedFor(p,D);
+      if((onlyGaps||onlyOff) && !((onlyGaps&&g.total>0)||(onlyOff&&offm.length>0))) return;
       var row="<tr><td class='stick'><div class='pname'><span class='cat "+p.category+"'></span>"+esc(p.name)+"</div><span class='catword'>"+p.category+"</span></td>";
       row+="<td class='needs'><button class='req s "+(p.needsSS?'on':'off')+"' data-p='"+esc(p.name)+"' data-req='ss'>S</button><button class='req p "+(p.needsPM?'on':'off')+"' data-p='"+esc(p.name)+"' data-req='pm'>P</button></td>";
       for(var m=0;m<12;m++){
         var active=p.active[m], ssH=D.ss[p.name][m], pmH=D.pm[p.name][m];
+        var offSched=!active && p.category!=="overhead" && (ssH>0||pmH>0);
         var ssGap=active&&p.needsSS&&ssH<=0, pmGap=active&&p.needsPM&&pmH<=0, badges="";
         if(active){ if(p.needsSS)badges+="<span class='badge s "+(ssH>0?'ok':'gap')+"'>S</span>"; if(p.needsPM)badges+="<span class='badge p "+(pmH>0?'ok':'gap')+"'>P</span>"; }
-        var cls="cell "+(active?"active":"inactive")+((ssGap||pmGap)?" hasgap":"");
+        else if(offSched){ if(ssH>0)badges+="<span class='badge off'>S</span>"; if(pmH>0)badges+="<span class='badge off'>P</span>"; }
+        var cls="cell "+(active?"active":"inactive")+((ssGap||pmGap)?" hasgap":"")+(offSched?" offsched":"");
         var sw=whoOn(p.name,"Site Supervision",m), pw=whoOn(p.name,"Project Manager",m);
-        var tip=MONTHS[m]+" — "+(active?"active":"not active")+" | SS: "+(sw.length?sw.join(", ")+" ("+ssH+"h)":(p.needsSS&&active?"none — needed":"—"))+" | PM: "+(pw.length?pw.join(", ")+" ("+pmH+"h)":(p.needsPM&&active?"none — needed":"—"));
+        var tip=MONTHS[m]+" — "+(active?"active":(offSched?"NOT active but staffed":"not active"))+" | SS: "+(sw.length?sw.join(", ")+" ("+ssH+"h)":(p.needsSS&&active?"none — needed":"—"))+" | PM: "+(pw.length?pw.join(", ")+" ("+pmH+"h)":(p.needsPM&&active?"none — needed":"—"))+(offSched?" — click to mark this month active":"");
         row+="<td class='mon'><button class='"+cls+"' data-p='"+esc(p.name)+"' data-m='"+m+"' title='"+esc(tip)+"'>"+badges+"</button></td>";
       }
       row+="<td class='gapcount"+(g.total===0?" zero":"")+"'>"+(g.total||"·")+"</td><td><button class='del' data-rmproj='"+esc(p.name)+"' title='Remove project'>×</button></td></tr>";
@@ -467,6 +477,7 @@
   el("filters").addEventListener("click",function(ev){
     var chip=ev.target.closest(".chip"); if(!chip)return;
     if(chip.id==="onlygaps"){ onlyGaps=!onlyGaps; chip.setAttribute("aria-pressed",onlyGaps); }
+    else if(chip.id==="onlyoff"){ onlyOff=!onlyOff; chip.setAttribute("aria-pressed",onlyOff); }
     else { catFilter[chip.dataset.cat]=!catFilter[chip.dataset.cat]; chip.setAttribute("aria-pressed",catFilter[chip.dataset.cat]); }
     renderSched();
   });
