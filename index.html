@@ -131,7 +131,7 @@
   .util td.num{font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; padding-right:12px}
   .util td.over{background:var(--gap-soft); color:var(--gap); font-weight:700}
   .util td.under{background:var(--warn-soft); color:var(--warn)}
-  .util td.zero{color:var(--faint)}
+  .util td.zero{background:var(--warn-soft); color:var(--warn); font-weight:600}
   .util td.role{text-align:left; color:var(--muted); font-size:.78rem}
   .util .avgbar{display:flex; align-items:center; gap:8px; justify-content:flex-end}
   .util .track{width:60px; height:7px; border-radius:99px; background:var(--surface-3); overflow:hidden}
@@ -233,7 +233,7 @@
     </div>
     <div class="legend">
       <div><span class="lg" style="background:var(--gap)"></span> Over capacity (&gt;160 h/mo)</div>
-      <div><span class="lg" style="background:var(--warn)"></span> Light month (&lt;120 h)</div>
+      <div><span class="lg" style="background:var(--warn)"></span> Light or unstaffed month (under 120 h, incl. 0)</div>
       <div>Capacity assumed 160 h/employee/month.</div>
     </div>
   </section>
@@ -417,7 +417,7 @@
       if(!role){ var rc={}; state.assignments.forEach(function(a){ if(a.emp===name&&a.role)rc[a.role]=(rc[a.role]||0)+1; }); role=Object.keys(rc).sort(function(x,y){return rc[y]-rc[x];})[0]||"—"; }
       var avg=total/(CAP*12), pct=Math.round(avg*100), w=Math.min(100,pct), col=avg>1?"var(--gap)":(avg<0.6?"var(--warn)":"var(--active)");
       var row="<tr><td class='stick'><div class='pname'>"+esc(name)+"</div></td><td class='role'>"+esc(role)+"</td><td class='num'>"+CAP+"</td>";
-      hrs.forEach(function(h){ var c="num"; if(h>CAP)c+=" over"; else if(h>0&&h<120)c+=" under"; else if(h===0)c+=" zero"; row+="<td class='"+c+"'>"+(h||"·")+"</td>"; });
+      hrs.forEach(function(h){ var c="num"; if(h>CAP)c+=" over"; else if(h>0&&h<120)c+=" under"; else if(h===0)c+=" zero"; row+="<td class='"+c+"'>"+(h===0?"0":h)+"</td>"; });
       row+="<td class='num'>"+total+"</td><td><div class='avgbar'><span class='pct'>"+pct+"%</span><span class='track'><span class='fill' style='width:"+w+"%;background:"+col+"'></span></span></div></td>";
       row+="<td><button class='del' data-rmemp='"+esc(name)+"' title='Remove employee'>×</button></td></tr>";
       body+=row;
