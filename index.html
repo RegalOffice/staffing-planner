@@ -237,9 +237,9 @@
       </div></div>
     </div>
     <div class="legend">
-      <div><span class="lg" style="background:var(--gap)"></span> Over capacity (&gt;160 h/mo)</div>
+      <div><span class="lg" style="background:var(--gap)"></span> Overstaffed (over 180 h/mo)</div>
       <div><span class="lg" style="background:var(--warn)"></span> Light or unstaffed month (under 120 h, incl. 0)</div>
-      <div>Capacity assumed 160 h/employee/month.</div>
+      <div>Capacity 160 h/mo; flagged overstaffed above 180 h.</div>
     </div>
   </section>
 
@@ -255,7 +255,7 @@
   var PASSCODE="bancroft2026";
 
   var MONTHS=["Jul-26","Aug-26","Sep-26","Oct-26","Nov-26","Dec-26","Jan-27","Feb-27","Mar-27","Apr-27","May-27","Jun-27"];
-  var CAP=160;
+  var CAP=160, OVER=180;
   var ROLES=["Site Supervision","Project Manager","Carpentry","Small job","Other"];
   function zeros(){return [0,0,0,0,0,0,0,0,0,0,0,0];}
 
@@ -344,7 +344,7 @@
   function totals(){
     var D=derive(),gaps=0,projGaps=0,activeProjects=0,off=0;
     state.projects.forEach(function(p){ var g=gapsFor(p,D); gaps+=g.total; if(g.total>0)projGaps++; if(p.active.some(function(x){return x;}))activeProjects++; off+=offSchedFor(p,D).length; });
-    var over=0; state.employees.forEach(function(e){ if(D.emp[e.name]&&D.emp[e.name].some(function(h){return h>CAP;}))over++; });
+    var over=0; state.employees.forEach(function(e){ if(D.emp[e.name]&&D.emp[e.name].some(function(h){return h>OVER;}))over++; });
     return {gaps:gaps,projGaps:projGaps,activeProjects:activeProjects,over:over,off:off};
   }
   function renderKPIs(){
@@ -353,7 +353,7 @@
       tile(t.gaps>0?"alert":"okk",t.gaps,"Coverage gaps",t.gaps>0?"active months missing a required role":"every active month is covered")+
       tile(t.projGaps>0?"alert":"okk",t.projGaps,"Projects affected","have at least one gap")+
       tile(t.off>0?"warnk":"okk",t.off,"Off-schedule",t.off>0?"months staffed but not marked active":"hours match the schedule")+
-      tile(t.over>0?"warnk":"okk",t.over,"People over capacity","some month above 160 h")+
+      tile(t.over>0?"warnk":"okk",t.over,"Overstaffed","a month above 180 h")+
       tile("brandk",t.activeProjects,"Active projects","with a scheduled month");
   }
   var HELP={
@@ -427,7 +427,7 @@
       if(!role){ var rc={}; state.assignments.forEach(function(a){ if(a.emp===name&&a.role)rc[a.role]=(rc[a.role]||0)+1; }); role=Object.keys(rc).sort(function(x,y){return rc[y]-rc[x];})[0]||"—"; }
       var avg=total/(CAP*12), pct=Math.round(avg*100), w=Math.min(100,pct), col=avg>1?"var(--gap)":(avg<0.6?"var(--warn)":"var(--active)");
       var row="<tr><td class='stick'><div class='pname'>"+esc(name)+"</div></td><td class='role'>"+esc(role)+"</td><td class='num'>"+CAP+"</td>";
-      hrs.forEach(function(h){ var c="num"; if(h>CAP)c+=" over"; else if(h>0&&h<120)c+=" under"; else if(h===0)c+=" zero"; row+="<td class='"+c+"'>"+(h===0?"0":h)+"</td>"; });
+      hrs.forEach(function(h){ var c="num"; if(h>OVER)c+=" over"; else if(h>0&&h<120)c+=" under"; else if(h===0)c+=" zero"; row+="<td class='"+c+"'>"+(h===0?"0":h)+"</td>"; });
       row+="<td class='num'>"+total+"</td><td><div class='avgbar'><span class='pct'>"+pct+"%</span><span class='track'><span class='fill' style='width:"+w+"%;background:"+col+"'></span></span></div></td>";
       row+="<td><button class='del' data-rmemp='"+esc(name)+"' title='Remove employee'>×</button></td></tr>";
       body+=row;
