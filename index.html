@@ -54,6 +54,12 @@
   .navbtn:hover:not(:disabled){border-color:var(--brand); color:var(--brand)}
   .navbtn:disabled{opacity:.4; cursor:default}
   .navbtn.today{color:var(--brand)}
+  .previewbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--warn-soft); border:1px solid var(--warn); color:var(--warn); border-radius:var(--radius-sm); padding:9px 14px; margin-bottom:14px; font-size:.82rem; font-weight:700}
+  .previewbar .btn{color:var(--ink); font-weight:600}
+  .chkpt{font-weight:700; color:var(--brand)}
+  .autov{color:var(--faint); font-family:var(--mono); font-size:.72rem}
+  #hist td{text-align:left}
+  body.previewing #view-assign input, body.previewing #view-assign select, body.previewing #view-assign .del, body.previewing #view-assign .addwrap, body.previewing #view-sched .cell, body.previewing #view-sched .req, body.previewing #view-sched .del, body.previewing #view-sched .addwrap, body.previewing #view-util .del, body.previewing #view-util .addwrap{ pointer-events:none; opacity:.5 }
 
   .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px}
   @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr)} }
@@ -175,6 +181,12 @@
 </div>
 
 <div class="app" id="approot" style="visibility:hidden">
+  <div id="previewbar" class="previewbar" style="display:none">
+    <span id="previewinfo"></span>
+    <span class="spacer"></span>
+    <button class="btn mini" id="previewRestore">Restore this version</button>
+    <button class="btn mini" id="previewExit">Back to current</button>
+  </div>
   <header class="masthead">
     <div>
       <p class="eyebrow">Bancroft Construction · Project Management</p>
@@ -194,6 +206,7 @@
       <button role="tab" id="tab-assign" aria-selected="true">Assignments</button>
       <button role="tab" id="tab-sched" aria-selected="false">Schedule &amp; Coverage</button>
       <button role="tab" id="tab-util" aria-selected="false">Utilization &amp; People</button>
+      <button role="tab" id="tab-history" aria-selected="false">History</button>
     </div>
     <span class="spacer"></span>
     <button class="btn mini" id="csv">Export CSV</button>
@@ -252,6 +265,15 @@
     </div>
   </section>
 
+  <section id="view-history" class="hide">
+    <div class="bar" style="margin-bottom:12px">
+      <button class="btn primary mini" id="checkpoint">★ Save checkpoint</button>
+      <button class="btn mini" id="histRefresh">Refresh</button>
+    </div>
+    <div class="panel"><div class="table-wrap"><table id="hist"><thead><tr><th>When</th><th>By</th><th>Type</th><th>What changed</th><th></th></tr></thead><tbody id="histbody"></tbody></table></div></div>
+    <div class="legend"><div>Versions save automatically as you work (throttled), plus whenever you click <b style="color:var(--ink)">Save checkpoint</b>. <b style="color:var(--ink)">Restore</b> is reversible — it snapshots the current schedule first. <b style="color:var(--ink)">Preview</b> just shows you a version; it changes nothing for the team.</div></div>
+  </section>
+
   <p class="foot">Shared planner · changes sync live for everyone with the link. Data stored in your team's private database.</p>
 </div>
 
@@ -279,6 +301,8 @@
   var myName="";
   var state=null, nextId=0;
   var pendingRemote=null, saveTimer=null;
+  var HISTORY_KEEP=200, SNAP_THROTTLE_MS=180000; // keep ~200 auto-versions; snapshot at most every 3 min
+  var lastSnapAt=0, lastSnapState=null, previewing=false, previewId=null, liveBackup=null;
 
   var el=function(id){return document.getElementById(id);};
   function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
@@ -300,17 +324,18 @@
       error:["var(--gap)","Offline — retrying…"], remote:["var(--brand)",(who?esc(who):"Someone")+" is editing — refreshing when you pause"] };
     var s=m[kind]||m.synced; e.innerHTML="<span style='color:"+s[0]+"'>●</span> "+s[1];
   }
-  function queueSave(){ setStatus("saving"); clearTimeout(saveTimer); saveTimer=setTimeout(pushSave,500); }
+  function queueSave(){ if(previewing) return; setStatus("saving"); clearTimeout(saveTimer); saveTimer=setTimeout(pushSave,500); }
   function pushSave(){
-    if(!state) return;
+    if(!state||previewing) return;
     state._origin=clientId; state._by=myName;
     db.from("plan").update({data:state, updated_by:myName, updated_at:new Date().toISOString()}).eq("id",1).then(function(res){
       if(res.error){ setStatus("error"); clearTimeout(saveTimer); saveTimer=setTimeout(pushSave,3000); }
-      else setStatus("synced","you");
+      else { setStatus("synced","you"); try{ maybeAutoSnapshot(); }catch(e){} }
     });
   }
   function isEditing(){ var a=document.activeElement; return !!(a && (a.tagName==="INPUT"||a.tagName==="SELECT")); }
   function applyRemote(row){
+    if(previewing){ liveBackup=row.data; if(liveBackup)ensureShape(liveBackup); return; }
     state=row.data; ensureShape(state); nextId=computeNextId();
     renderKPIs(); renderCurrent(); setStatus("synced", row.updated_by||"someone");
   }
@@ -377,7 +402,8 @@
   var HELP={
     assign:"<b>Assignments:</b> type <b>hours</b> into any month cell. Change the <b>Employee</b>, <b>Role</b>, or <b>Project</b> dropdown to reassign. <b>+ Add assignment</b> for a new job, <b>×</b> to remove. Everything syncs to your team live.",
     sched:"<b>Schedule &amp; Coverage:</b> click a month to toggle a project <b>active</b> (green). <b>S</b>/<b>P</b> set whether it needs a Site Supervisor or Project Manager; any active month missing a required role turns <b>red</b>. Add/remove projects at the bottom.",
-    util:"<b>Utilization &amp; People:</b> each employee's planned hours vs. 160 h/month (red = over, amber = light). Add/remove employees at the bottom."
+    util:"<b>Utilization &amp; People:</b> each employee's planned hours vs. 180 h/month (red = over 180, amber = light). Add/remove employees at the bottom.",
+    history:"<b>History:</b> every save is versioned automatically (throttled to a few minutes), plus named <b>checkpoints</b> you create. <b>Preview</b> a version without disturbing the team, or <b>Restore</b> to roll everyone back — a restore snapshots the current version first, so it's reversible."
   };
   function opts(list,val){ return list.map(function(o){ return "<option"+(o===val?" selected":"")+">"+esc(o)+"</option>"; }).join(""); }
 
@@ -477,16 +503,11 @@
   }
 
   var current="assign";
-  function renderCurrent(){ if(current==="assign")renderAssign(); else if(current==="sched")renderSched(); else renderUtil(); }
+  function renderCurrent(){ if(current==="assign")renderAssign(); else if(current==="sched")renderSched(); else if(current==="util")renderUtil(); else if(current==="history")loadHistory(); }
   function selectTab(t){
     current=t;
-    el("tab-assign").setAttribute("aria-selected",t==="assign");
-    el("tab-sched").setAttribute("aria-selected",t==="sched");
-    el("tab-util").setAttribute("aria-selected",t==="util");
-    el("view-assign").classList.toggle("hide",t!=="assign");
-    el("view-sched").classList.toggle("hide",t!=="sched");
-    el("view-util").classList.toggle("hide",t!=="util");
-    el("help").innerHTML=HELP[t];
+    ["assign","sched","util","history"].forEach(function(x){ el("tab-"+x).setAttribute("aria-selected",t===x); el("view-"+x).classList.toggle("hide",t!==x); });
+    el("help").innerHTML=HELP[t]||"";
     renderCurrent();
   }
 
@@ -580,6 +601,109 @@
     var csv=rows.map(function(r){ return r.map(function(c){ c=String(c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(","); }).join("\n");
     var blob=new Blob([csv],{type:"text/csv"}), url=URL.createObjectURL(blob), aa=document.createElement("a");
     aa.href=url; aa.download=fname; document.body.appendChild(aa); aa.click(); document.body.removeChild(aa); setTimeout(function(){URL.revokeObjectURL(url);},1000);
+  };
+
+  // ---- history / versions ----
+  function fmtTime(iso){ try{ return new Date(iso).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}); }catch(e){ return iso; } }
+  function summarize(o,n){
+    var parts=[], oa={}, na={};
+    (o.assignments||[]).forEach(function(a){oa[a.id]=a;}); (n.assignments||[]).forEach(function(a){na[a.id]=a;});
+    var added=0,removed=0,hourEdits=0,reassigned=0;
+    Object.keys(na).forEach(function(id){ if(!oa[id])added++; });
+    Object.keys(oa).forEach(function(id){ if(!na[id])removed++; });
+    Object.keys(na).forEach(function(id){ var a=na[id],b=oa[id]; if(!b)return; if(a.emp!==b.emp||a.role!==b.role||a.project!==b.project)reassigned++; var ah=a.hours||[],bh=b.hours||[],L=Math.max(ah.length,bh.length),mm; for(mm=0;mm<L;mm++){ if(toNum(ah[mm])!==toNum(bh[mm]))hourEdits++; } });
+    if(hourEdits)parts.push(hourEdits+" hour edit"+(hourEdits>1?"s":""));
+    if(added)parts.push(added+" assignment"+(added>1?"s":"")+" added");
+    if(removed)parts.push(removed+" assignment"+(removed>1?"s":"")+" removed");
+    if(reassigned)parts.push(reassigned+" reassigned");
+    var op={},np={}; (o.projects||[]).forEach(function(p){op[p.name]=p;}); (n.projects||[]).forEach(function(p){np[p.name]=p;});
+    var pA=0,pR=0,sched=0;
+    Object.keys(np).forEach(function(k){ if(!op[k])pA++; });
+    Object.keys(op).forEach(function(k){ if(!np[k])pR++; });
+    Object.keys(np).forEach(function(k){ var p=np[k],q=op[k]; if(!q)return; if(p.needsSS!==q.needsSS||p.needsPM!==q.needsPM)sched++; var pa=p.active||[],qa=q.active||[],L=Math.max(pa.length,qa.length),mm; for(mm=0;mm<L;mm++){ if((pa[mm]?1:0)!==(qa[mm]?1:0)){ sched++; break; } } });
+    if(pA)parts.push(pA+" project"+(pA>1?"s":"")+" added");
+    if(pR)parts.push(pR+" project"+(pR>1?"s":"")+" removed");
+    if(sched)parts.push(sched+" schedule change"+(sched>1?"s":""));
+    var oe=(o.employees||[]).length, ne=(n.employees||[]).length;
+    if(ne>oe)parts.push((ne-oe)+" employee(s) added"); if(ne<oe)parts.push((oe-ne)+" employee(s) removed");
+    return parts.length?parts.join(" · "):"minor changes";
+  }
+  function insertSnapshot(data, summary, label){
+    try{
+      var snapData=JSON.parse(JSON.stringify(data));
+      if(summary===null) summary=lastSnapState?summarize(lastSnapState,snapData):"Initial snapshot";
+      db.from("plan_history").insert({plan_id:1,data:snapData,edited_by:myName||"—",summary:summary,label:label||null}).then(function(res){
+        lastSnapAt=Date.now();
+        if(!res.error){ lastSnapState=snapData; pruneHistory(); if(current==="history")loadHistory(); }
+      });
+    }catch(e){}
+  }
+  function takeSnapshot(label){ insertSnapshot(state, null, label); }
+  function maybeAutoSnapshot(){ if(!previewing && Date.now()-lastSnapAt>=SNAP_THROTTLE_MS) takeSnapshot(null); }
+  function pruneHistory(){
+    db.from("plan_history").select("id").is("label",null).order("created_at",{ascending:false}).range(HISTORY_KEEP, HISTORY_KEEP+400).then(function(res){
+      if(res.error||!res.data||!res.data.length) return;
+      db.from("plan_history").delete().in("id", res.data.map(function(r){return r.id;}));
+    });
+  }
+  function loadHistory(){
+    var tb=el("histbody"); if(!tb) return;
+    db.from("plan_history").select("id,created_at,edited_by,summary,label").order("created_at",{ascending:false}).limit(300).then(function(res){
+      if(res.error){ tb.innerHTML="<tr><td colspan='5' style='padding:16px;color:var(--muted);text-align:left'>Couldn't load history — has the history table been created yet? Run the setup SQL, then click Refresh.</td></tr>"; return; }
+      if(!res.data.length){ tb.innerHTML="<tr><td colspan='5' style='padding:16px;color:var(--muted);text-align:left'>No versions yet — make an edit, or click “Save checkpoint”.</td></tr>"; return; }
+      var html="";
+      res.data.forEach(function(v){
+        var type=v.label?("<span class='chkpt'>★ "+esc(v.label)+"</span>"):"<span class='autov'>auto</span>";
+        html+="<tr><td style='white-space:nowrap'>"+esc(fmtTime(v.created_at))+"</td><td>"+esc(v.edited_by||"—")+"</td><td>"+type+"</td><td style='color:var(--muted)'>"+esc(v.summary||"")+"</td><td style='white-space:nowrap;text-align:right'><button class='btn mini' data-prev='"+v.id+"'>Preview</button> <button class='btn mini' data-restore='"+v.id+"'>Restore</button></td></tr>";
+      });
+      tb.innerHTML=html;
+    });
+  }
+  function saveCheckpoint(){
+    var label=prompt("Name this checkpoint (e.g. “Approved Aug plan”):"); if(label===null) return;
+    label=label.trim(); if(!label) label="Checkpoint"; takeSnapshot(label);
+    setStatus("synced","you"); if(current==="history") setTimeout(loadHistory, 500);
+  }
+  function restoreVersion(id){
+    db.from("plan_history").select("data,created_at").eq("id",id).single().then(function(res){
+      if(res.error||!res.data){ alert("Couldn't load that version."); return; }
+      if(!confirm("Restore the schedule to the version from "+fmtTime(res.data.created_at)+"?\n\nThis changes it for everyone. The current version is saved to history first, so you can undo the restore.")) return;
+      insertSnapshot(state, "Backup before restore", null);
+      var restored=res.data.data; ensureShape(restored);
+      state=restored; nextId=computeNextId(); updateWinUI(); renderKPIs(); queueSave(); selectTab("assign");
+    });
+  }
+  function previewVersion(id){
+    db.from("plan_history").select("data,created_at,edited_by,label").eq("id",id).single().then(function(res){
+      if(res.error||!res.data){ alert("Couldn't load that version."); return; }
+      if(!previewing) liveBackup=state;
+      var snap=res.data.data; ensureShape(snap); state=snap; previewing=true; previewId=id; nextId=computeNextId();
+      document.body.classList.add("previewing");
+      el("previewinfo").textContent="👁 Previewing "+(res.data.label?("“"+res.data.label+"” · "):"")+fmtTime(res.data.created_at)+" · saved by "+(res.data.edited_by||"someone")+" — read-only";
+      el("previewbar").style.display="flex";
+      selectTab("assign"); updateWinUI(); renderKPIs();
+    });
+  }
+  function exitPreview(){
+    if(!previewing) return;
+    previewing=false; previewId=null; document.body.classList.remove("previewing"); el("previewbar").style.display="none";
+    if(liveBackup){ state=liveBackup; liveBackup=null; } ensureShape(state); nextId=computeNextId();
+    updateWinUI(); renderKPIs(); renderCurrent();
+  }
+  el("tab-history").onclick=function(){ selectTab("history"); };
+  el("checkpoint").onclick=saveCheckpoint;
+  el("histRefresh").onclick=loadHistory;
+  el("histbody").addEventListener("click",function(ev){
+    var p=ev.target.closest("[data-prev]"); if(p){ previewVersion(p.dataset.prev); return; }
+    var r=ev.target.closest("[data-restore]"); if(r){ restoreVersion(r.dataset.restore); return; }
+  });
+  el("previewExit").onclick=exitPreview;
+  el("previewRestore").onclick=function(){
+    if(!previewing) return;
+    if(!confirm("Restore the schedule to this previewed version for everyone? The current version is saved to history first.")) return;
+    if(liveBackup) insertSnapshot(liveBackup, "Backup before restore", null);
+    previewing=false; previewId=null; document.body.classList.remove("previewing"); el("previewbar").style.display="none"; liveBackup=null;
+    ensureShape(state); nextId=computeNextId(); updateWinUI(); renderKPIs(); renderCurrent(); queueSave();
   };
 
   // ---- gate ----
