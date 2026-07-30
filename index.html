@@ -437,7 +437,8 @@
     var bil=zeros(), non=zeros(), m;
     state.assignments.forEach(function(a){
       if(!a.project) return; var p=projByName(a.project); if(!p) return;
-      var tgt=(p.category==="overhead")?non:bil;
+      var isNon=(p.category==="overhead" && p.name!=="Miscellaneous/ helping"); // Misc/helping counts as billable
+      var tgt=isNon?non:bil;
       for(m=0;m<N;m++) tgt[m]+=toNum(a.hours[m]);
     });
     return {bil:bil, non:non};
@@ -463,7 +464,7 @@
     var brow="<tr class='sumrow bill'><td class='stick'>Billable hours</td><td class='role'></td><td class='num'></td>";
     for(k=0;k<WIN;k++){ var bv=bt.bil[viewStart+k]; bTot+=bv; brow+="<td class='num'>"+(bv||"·")+"</td>"; }
     brow+="<td class='num'>"+bTot+"</td><td></td><td></td></tr>";
-    var nrow="<tr class='sumrow nonbill'><td class='stick'>Non-billable (overhead)</td><td class='role'></td><td class='num'></td>";
+    var nrow="<tr class='sumrow nonbill'><td class='stick'>Non-billable (admin/office)</td><td class='role'></td><td class='num'></td>";
     for(k=0;k<WIN;k++){ var nv=bt.non[viewStart+k]; nTot+=nv; nrow+="<td class='num'>"+(nv||"·")+"</td>"; }
     nrow+="<td class='num'>"+nTot+"</td><td></td><td></td></tr>";
     el("util").tBodies[0].innerHTML=body+brow+nrow;
