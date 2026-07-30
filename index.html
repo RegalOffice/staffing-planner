@@ -248,7 +248,7 @@
     <div class="legend">
       <div><span class="lg" style="background:var(--gap)"></span> Overstaffed (over 180 h/mo)</div>
       <div><span class="lg" style="background:var(--warn)"></span> Light or unstaffed month (under 120 h, incl. 0)</div>
-      <div>Capacity 160 h/mo; flagged overstaffed above 180 h.</div>
+      <div>Capacity 180 h/mo. My Estate Care is uncapped (external).</div>
     </div>
   </section>
 
@@ -268,7 +268,7 @@
   var N=60, WIN=12;                // N months (history+future); 12-month visible window
   function monthLabel(idx){ var t=ANCHOR_M+idx, y=ANCHOR_Y+Math.floor(t/12), mm=((t%12)+12)%12; return MON[mm]+"-"+String(y).slice(-2); }
   var MONTHS=[]; (function(){ for(var i=0;i<N;i++) MONTHS.push(monthLabel(i)); })();
-  var CAP=160, OVER=180;
+  var CAP=180, OVER=180;
   var ROLES=["Site Supervision","Project Manager","Carpentry","Small job","Other"];
   function zeros(){ var a=[]; for(var i=0;i<N;i++) a.push(0); return a; }
   function curMonthIdx(){ var d=new Date(); var idx=(d.getFullYear()-ANCHOR_Y)*12+(d.getMonth()-ANCHOR_M); return Math.max(0, Math.min(N-WIN, idx)); }
@@ -289,7 +289,8 @@
   function projByName(n){ for(var i=0;i<state.projects.length;i++){ if(state.projects[i].name===n) return state.projects[i]; } return null; }
   function padTo(arr){ arr=Array.isArray(arr)?arr.slice():[]; while(arr.length<N)arr.push(0); return arr; }
   function normalizeTimeline(s){ (s.assignments||[]).forEach(function(a){ a.hours=padTo(a.hours); }); (s.projects||[]).forEach(function(p){ p.active=padTo(p.active); }); }
-  function ensureShape(s){ if(!s.employees)s.employees=[]; if(!s.projects)s.projects=[]; if(!s.assignments)s.assignments=[]; normalizeTimeline(s); }
+  function migrate(s){ (s.employees||[]).forEach(function(e){ if(e.name==="My estate care"){ e.name="My Estate Care"; e.nocap=true; } }); (s.assignments||[]).forEach(function(a){ if(a.emp==="My estate care") a.emp="My Estate Care"; }); }
+  function ensureShape(s){ if(!s.employees)s.employees=[]; if(!s.projects)s.projects=[]; if(!s.assignments)s.assignments=[]; normalizeTimeline(s); migrate(s); }
   function computeNextId(){ return state.assignments.reduce(function(mx,a){return Math.max(mx,a.id);},-1)+1; }
 
   // ---- sync ----
@@ -347,7 +348,7 @@
     state.employees.forEach(function(e){ emp[e.name]=zeros(); });
     state.assignments.forEach(function(a){
       var h=a.hours;
-      if(a.project){
+      if(a.project && a.emp){
         if(a.role==="Site Supervision"&&ss[a.project]){ for(m=0;m<N;m++) ss[a.project][m]+=toNum(h[m]); }
         else if(a.role==="Project Manager"&&pm[a.project]){ for(m=0;m<N;m++) pm[a.project][m]+=toNum(h[m]); }
       }
@@ -355,13 +356,13 @@
     });
     return {ss:ss,pm:pm,emp:emp};
   }
-  function whoOn(project,role,m){ var n=[]; state.assignments.forEach(function(a){ if(a.project===project&&a.role===role&&toNum(a.hours[m])>0) n.push(a.emp||"(unnamed)"); }); return n; }
+  function whoOn(project,role,m){ var n=[]; state.assignments.forEach(function(a){ if(a.project===project&&a.role===role&&a.emp&&toNum(a.hours[m])>0) n.push(a.emp); }); return n; }
   function gapsFor(p,D){ var ss=[],pm=[]; for(var m=viewStart;m<viewStart+WIN;m++){ if(!p.active[m])continue; if(p.needsSS&&(D.ss[p.name]?D.ss[p.name][m]:0)<=0)ss.push(m); if(p.needsPM&&(D.pm[p.name]?D.pm[p.name][m]:0)<=0)pm.push(m); } return {ss:ss,pm:pm,total:ss.length+pm.length}; }
   function offSchedFor(p,D){ var out=[]; if(p.category==="overhead") return out; for(var m=viewStart;m<viewStart+WIN;m++){ if(!p.active[m] && (((D.ss[p.name]?D.ss[p.name][m]:0)>0)||((D.pm[p.name]?D.pm[p.name][m]:0)>0))) out.push(m); } return out; }
   function totals(){
     var D=derive(),gaps=0,projGaps=0,activeProjects=0,off=0;
     state.projects.forEach(function(p){ var g=gapsFor(p,D); gaps+=g.total; if(g.total>0)projGaps++; if(p.active.slice(viewStart,viewStart+WIN).some(function(x){return x;}))activeProjects++; off+=offSchedFor(p,D).length; });
-    var over=0; state.employees.forEach(function(e){ if(D.emp[e.name]&&D.emp[e.name].slice(viewStart,viewStart+WIN).some(function(h){return h>OVER;}))over++; });
+    var over=0; state.employees.forEach(function(e){ if(!e.nocap && D.emp[e.name]&&D.emp[e.name].slice(viewStart,viewStart+WIN).some(function(h){return h>OVER;}))over++; });
     return {gaps:gaps,projGaps:projGaps,activeProjects:activeProjects,over:over,off:off};
   }
   function renderKPIs(){
@@ -453,10 +454,15 @@
       var name=e.name, hrs=D.emp[name]||zeros(), role=e.role, total=0, c, h;
       for(c=0;c<WIN;c++) total+=hrs[viewStart+c];
       if(!role){ var rc={}; state.assignments.forEach(function(a){ if(a.emp===name&&a.role)rc[a.role]=(rc[a.role]||0)+1; }); role=Object.keys(rc).sort(function(x,y){return rc[y]-rc[x];})[0]||"—"; }
-      var avg=total/(CAP*WIN), pct=Math.round(avg*100), w=Math.min(100,pct), col=avg>1?"var(--gap)":(avg<0.6?"var(--warn)":"var(--active)");
-      var row="<tr><td class='stick'><div class='pname'>"+esc(name)+"</div></td><td class='role'>"+esc(role)+"</td><td class='num'>"+CAP+"</td>";
-      for(c=0;c<WIN;c++){ h=hrs[viewStart+c]; var cc="num"; if(h>OVER)cc+=" over"; else if(h>0&&h<120)cc+=" under"; else if(h===0)cc+=" zero"; row+="<td class='"+cc+"'>"+(h===0?"0":h)+"</td>"; }
-      row+="<td class='num'>"+total+"</td><td><div class='avgbar'><span class='pct'>"+pct+"%</span><span class='track'><span class='fill' style='width:"+w+"%;background:"+col+"'></span></span></div></td>";
+      var row="<tr><td class='stick'><div class='pname'>"+esc(name)+"</div></td><td class='role'>"+esc(role)+"</td><td class='num'>"+(e.nocap?"—":CAP)+"</td>";
+      if(e.nocap){
+        for(c=0;c<WIN;c++){ h=hrs[viewStart+c]; row+="<td class='num'>"+(h||"·")+"</td>"; }
+        row+="<td class='num'>"+total+"</td><td class='num' style='color:var(--faint)'>—</td>";
+      } else {
+        for(c=0;c<WIN;c++){ h=hrs[viewStart+c]; var cc="num"; if(h>OVER)cc+=" over"; else if(h>0&&h<120)cc+=" under"; else if(h===0)cc+=" zero"; row+="<td class='"+cc+"'>"+(h===0?"0":h)+"</td>"; }
+        var avg=total/(CAP*WIN), pct=Math.round(avg*100), w=Math.min(100,pct), col=avg>1?"var(--gap)":(avg<0.6?"var(--warn)":"var(--active)");
+        row+="<td class='num'>"+total+"</td><td><div class='avgbar'><span class='pct'>"+pct+"%</span><span class='track'><span class='fill' style='width:"+w+"%;background:"+col+"'></span></span></div></td>";
+      }
       row+="<td><button class='del' data-rmemp='"+esc(name)+"' title='Remove employee'>×</button></td></tr>";
       body+=row;
     });
