@@ -49,6 +49,11 @@
   .mhr{display:flex; flex-direction:column; align-items:flex-end; gap:6px}
   .horizon{font-family:var(--mono); font-size:.78rem; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:5px 13px; white-space:nowrap}
   .sync{font-size:.76rem; font-weight:600; display:flex; align-items:center; gap:6px; color:var(--muted)}
+  .navwin{display:flex; align-items:center; gap:6px}
+  .navbtn{font:inherit; font-size:.8rem; font-weight:700; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:5px 10px; cursor:pointer; line-height:1}
+  .navbtn:hover:not(:disabled){border-color:var(--brand); color:var(--brand)}
+  .navbtn:disabled{opacity:.4; cursor:default}
+  .navbtn.today{color:var(--brand)}
 
   .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px}
   @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr)} }
@@ -135,6 +140,10 @@
   .util td.over{background:var(--gap-soft); color:var(--gap); font-weight:700}
   .util td.under{background:var(--warn-soft); color:var(--warn)}
   .util td.zero{background:var(--warn-soft); color:var(--warn); font-weight:600}
+  .util tr.sumrow td{font-weight:700; border-top:2px solid var(--line-strong); background:var(--surface-3)}
+  .util tr.sumrow td.stick{background:var(--surface-3)}
+  .util tr.sumrow.bill td.stick{color:var(--active)}
+  .util tr.sumrow.nonbill td.stick{color:var(--muted)}
   .util td.role{text-align:left; color:var(--muted); font-size:.78rem}
   .util .avgbar{display:flex; align-items:center; gap:8px; justify-content:flex-end}
   .util .track{width:60px; height:7px; border-radius:99px; background:var(--surface-3); overflow:hidden}
@@ -148,7 +157,7 @@
   .help{font-size:.82rem; color:var(--muted); margin:0 0 14px; padding:11px 14px; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm)}
   .help b{color:var(--ink)}
   .foot{font-size:.74rem; color:var(--faint); margin-top:16px; text-align:center}
-  @media print{ .bar,.filters,.btn,.tabs,.help,.foot,.addwrap,.del,.sync{display:none !important} .table-wrap{max-height:none; overflow:visible} .panel{box-shadow:none; border-color:#bbb} }
+  @media print{ .bar,.filters,.btn,.tabs,.help,.foot,.addwrap,.del,.sync,.navbtn{display:none !important} .table-wrap{max-height:none; overflow:visible} .panel{box-shadow:none; border-color:#bbb} }
 </style>
 </head>
 <body>
@@ -172,7 +181,7 @@
       <h1>Staffing &amp; Schedule Planner</h1>
     </div>
     <div class="mhr">
-      <div class="horizon">Jul 2026 → Jun 2027 · 12-month horizon</div>
+      <div class="navwin"><button class="navbtn" id="winPrev" title="Earlier months">◀</button><span class="horizon" id="winLabel">—</span><button class="navbtn" id="winNext" title="Later months">▶</button><button class="navbtn today" id="winToday" title="Jump to the current month">Today</button></div>
       <div class="sync" id="sync">● Connecting…</div>
     </div>
   </header>
@@ -254,10 +263,16 @@
   var SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImluemZzbXFxdnBrcnJleXB2Y2l3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MTI2MjQsImV4cCI6MjEwMDM4ODYyNH0._6Y-jGkf4wv6cEL51mGCCnt2_SXN2cNglovdrHtkzQU";
   var PASSCODE="bancroft2026";
 
-  var MONTHS=["Jul-26","Aug-26","Sep-26","Oct-26","Nov-26","Dec-26","Jan-27","Feb-27","Mar-27","Apr-27","May-27","Jun-27"];
+  var MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var ANCHOR_Y=2026, ANCHOR_M=6;   // timeline index 0 = Jul 2026
+  var N=60, WIN=12;                // N months (history+future); 12-month visible window
+  function monthLabel(idx){ var t=ANCHOR_M+idx, y=ANCHOR_Y+Math.floor(t/12), mm=((t%12)+12)%12; return MON[mm]+"-"+String(y).slice(-2); }
+  var MONTHS=[]; (function(){ for(var i=0;i<N;i++) MONTHS.push(monthLabel(i)); })();
   var CAP=160, OVER=180;
   var ROLES=["Site Supervision","Project Manager","Carpentry","Small job","Other"];
-  function zeros(){return [0,0,0,0,0,0,0,0,0,0,0,0];}
+  function zeros(){ var a=[]; for(var i=0;i<N;i++) a.push(0); return a; }
+  function curMonthIdx(){ var d=new Date(); var idx=(d.getFullYear()-ANCHOR_Y)*12+(d.getMonth()-ANCHOR_M); return Math.max(0, Math.min(N-WIN, idx)); }
+  var viewStart=curMonthIdx();
 
   var db=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {realtime:{params:{eventsPerSecond:5}}});
   var clientId="c"+Date.now()+"-"+Math.floor(Math.random()*1e6);
@@ -272,7 +287,9 @@
   function empNames(){ return state.employees.map(function(e){return e.name;}); }
   function projNames(){ return state.projects.map(function(p){return p.name;}); }
   function projByName(n){ for(var i=0;i<state.projects.length;i++){ if(state.projects[i].name===n) return state.projects[i]; } return null; }
-  function ensureShape(s){ if(!s.employees)s.employees=[]; if(!s.projects)s.projects=[]; if(!s.assignments)s.assignments=[]; }
+  function padTo(arr){ arr=Array.isArray(arr)?arr.slice():[]; while(arr.length<N)arr.push(0); return arr; }
+  function normalizeTimeline(s){ (s.assignments||[]).forEach(function(a){ a.hours=padTo(a.hours); }); (s.projects||[]).forEach(function(p){ p.active=padTo(p.active); }); }
+  function ensureShape(s){ if(!s.employees)s.employees=[]; if(!s.projects)s.projects=[]; if(!s.assignments)s.assignments=[]; normalizeTimeline(s); }
   function computeNextId(){ return state.assignments.reduce(function(mx,a){return Math.max(mx,a.id);},-1)+1; }
 
   // ---- sync ----
@@ -317,7 +334,7 @@
       if(res.error||!res.data){ el("sync").textContent="Couldn't load plan — refresh the page"; return; }
       state=res.data.data; ensureShape(state); nextId=computeNextId();
       el("approot").style.visibility="visible";
-      renderKPIs(); selectTab("assign"); setStatus("synced", res.data.updated_by);
+      updateWinUI(); renderKPIs(); selectTab("assign"); setStatus("synced", res.data.updated_by);
       subscribe();
     });
   }
@@ -331,20 +348,20 @@
     state.assignments.forEach(function(a){
       var h=a.hours;
       if(a.project){
-        if(a.role==="Site Supervision"&&ss[a.project]){ for(m=0;m<12;m++) ss[a.project][m]+=toNum(h[m]); }
-        else if(a.role==="Project Manager"&&pm[a.project]){ for(m=0;m<12;m++) pm[a.project][m]+=toNum(h[m]); }
+        if(a.role==="Site Supervision"&&ss[a.project]){ for(m=0;m<N;m++) ss[a.project][m]+=toNum(h[m]); }
+        else if(a.role==="Project Manager"&&pm[a.project]){ for(m=0;m<N;m++) pm[a.project][m]+=toNum(h[m]); }
       }
-      if(a.emp&&emp[a.emp]){ for(m=0;m<12;m++) emp[a.emp][m]+=toNum(h[m]); }
+      if(a.emp&&emp[a.emp]){ for(m=0;m<N;m++) emp[a.emp][m]+=toNum(h[m]); }
     });
     return {ss:ss,pm:pm,emp:emp};
   }
   function whoOn(project,role,m){ var n=[]; state.assignments.forEach(function(a){ if(a.project===project&&a.role===role&&toNum(a.hours[m])>0) n.push(a.emp||"(unnamed)"); }); return n; }
-  function gapsFor(p,D){ var ss=[],pm=[]; for(var m=0;m<12;m++){ if(!p.active[m])continue; if(p.needsSS&&(D.ss[p.name]?D.ss[p.name][m]:0)<=0)ss.push(m); if(p.needsPM&&(D.pm[p.name]?D.pm[p.name][m]:0)<=0)pm.push(m); } return {ss:ss,pm:pm,total:ss.length+pm.length}; }
-  function offSchedFor(p,D){ var out=[]; if(p.category==="overhead") return out; for(var m=0;m<12;m++){ if(!p.active[m] && (((D.ss[p.name]?D.ss[p.name][m]:0)>0)||((D.pm[p.name]?D.pm[p.name][m]:0)>0))) out.push(m); } return out; }
+  function gapsFor(p,D){ var ss=[],pm=[]; for(var m=viewStart;m<viewStart+WIN;m++){ if(!p.active[m])continue; if(p.needsSS&&(D.ss[p.name]?D.ss[p.name][m]:0)<=0)ss.push(m); if(p.needsPM&&(D.pm[p.name]?D.pm[p.name][m]:0)<=0)pm.push(m); } return {ss:ss,pm:pm,total:ss.length+pm.length}; }
+  function offSchedFor(p,D){ var out=[]; if(p.category==="overhead") return out; for(var m=viewStart;m<viewStart+WIN;m++){ if(!p.active[m] && (((D.ss[p.name]?D.ss[p.name][m]:0)>0)||((D.pm[p.name]?D.pm[p.name][m]:0)>0))) out.push(m); } return out; }
   function totals(){
     var D=derive(),gaps=0,projGaps=0,activeProjects=0,off=0;
-    state.projects.forEach(function(p){ var g=gapsFor(p,D); gaps+=g.total; if(g.total>0)projGaps++; if(p.active.some(function(x){return x;}))activeProjects++; off+=offSchedFor(p,D).length; });
-    var over=0; state.employees.forEach(function(e){ if(D.emp[e.name]&&D.emp[e.name].some(function(h){return h>OVER;}))over++; });
+    state.projects.forEach(function(p){ var g=gapsFor(p,D); gaps+=g.total; if(g.total>0)projGaps++; if(p.active.slice(viewStart,viewStart+WIN).some(function(x){return x;}))activeProjects++; off+=offSchedFor(p,D).length; });
+    var over=0; state.employees.forEach(function(e){ if(D.emp[e.name]&&D.emp[e.name].slice(viewStart,viewStart+WIN).some(function(h){return h>OVER;}))over++; });
     return {gaps:gaps,projGaps:projGaps,activeProjects:activeProjects,over:over,off:off};
   }
   function renderKPIs(){
@@ -365,19 +382,19 @@
 
   function renderAssign(){
     var head="<tr><th class='stick'>Employee</th><th>Role</th><th>Project</th>";
-    MONTHS.forEach(function(m){ head+="<th>"+abbr(m)+"</th>"; }); head+="<th>Total</th><th></th></tr>";
+    for(var hc=0;hc<WIN;hc++){ head+="<th>"+abbr(MONTHS[viewStart+hc])+"</th>"; } head+="<th>Total</th><th></th></tr>";
     el("assign").tHead.innerHTML=head;
     var names=empNames(), pnames=projNames();
     var rows=state.assignments.slice().sort(function(a,b){ var ea=a.emp||"~~",eb=b.emp||"~~"; if(ea!==eb)return ea<eb?-1:1; var pa=a.project||"~~",pb=b.project||"~~"; return pa<pb?-1:(pa>pb?1:0); });
     var body="",lastEmp=" ";
     rows.forEach(function(a){
       var gs=(a.emp!==lastEmp); lastEmp=a.emp;
-      var total=a.hours.reduce(function(x,y){return x+toNum(y);},0);
+      var total=0; for(var tc=0;tc<WIN;tc++) total+=toNum(a.hours[viewStart+tc]);
       var tr="<tr class='arow"+(gs?" gstart":"")+"'>";
       tr+="<td class='stick'><select class='sel' data-id='"+a.id+"' data-f='emp'><option value=''>— unassigned —</option>"+opts(names,a.emp)+"</select></td>";
       tr+="<td class='role'><select class='sel' data-id='"+a.id+"' data-f='role'>"+opts(ROLES,a.role)+"</select></td>";
       tr+="<td class='proj2'><select class='sel' data-id='"+a.id+"' data-f='project'><option value=''>— none —</option>"+opts(pnames,a.project)+"</select></td>";
-      for(var m=0;m<12;m++){ tr+="<td class='hrcell'><input class='hr' type='number' min='0' step='5' data-id='"+a.id+"' data-m='"+m+"' value='"+(a.hours[m]||"")+"'></td>"; }
+      for(var c=0;c<WIN;c++){ var m=viewStart+c; tr+="<td class='hrcell'><input class='hr' type='number' min='0' step='5' data-id='"+a.id+"' data-m='"+m+"' value='"+(a.hours[m]||"")+"'></td>"; }
       tr+="<td class='tot' id='tot-"+a.id+"'>"+(total||"")+"</td>";
       tr+="<td><button class='del' data-id='"+a.id+"' title='Remove'>×</button></td></tr>";
       body+=tr;
@@ -390,7 +407,7 @@
   function renderSched(){
     var D=derive();
     var head="<tr><th class='stick'>Project</th><th>Needs</th>";
-    MONTHS.forEach(function(m){ head+="<th>"+abbr(m)+"</th>"; }); head+="<th>Gaps</th><th></th></tr>";
+    for(var hc=0;hc<WIN;hc++){ head+="<th>"+abbr(MONTHS[viewStart+hc])+"</th>"; } head+="<th>Gaps</th><th></th></tr>";
     el("sched").tHead.innerHTML=head;
     var body="";
     state.projects.forEach(function(p){
@@ -399,7 +416,7 @@
       if((onlyGaps||onlyOff) && !((onlyGaps&&g.total>0)||(onlyOff&&offm.length>0))) return;
       var row="<tr><td class='stick'><div class='pname'><span class='cat "+p.category+"'></span>"+esc(p.name)+"</div><span class='catword'>"+p.category+"</span></td>";
       row+="<td class='needs'><button class='req s "+(p.needsSS?'on':'off')+"' data-p='"+esc(p.name)+"' data-req='ss'>S</button><button class='req p "+(p.needsPM?'on':'off')+"' data-p='"+esc(p.name)+"' data-req='pm'>P</button></td>";
-      for(var m=0;m<12;m++){
+      for(var c=0;c<WIN;c++){ var m=viewStart+c;
         var active=p.active[m], ssH=D.ss[p.name][m], pmH=D.pm[p.name][m];
         var offSched=!active && p.category!=="overhead" && (ssH>0||pmH>0);
         var ssGap=active&&p.needsSS&&ssH<=0, pmGap=active&&p.needsPM&&pmH<=0, badges="";
@@ -416,23 +433,40 @@
     if(!body) body="<tr><td class='stick'>—</td><td colspan='15' style='text-align:left;color:var(--muted);padding-left:12px'>No projects match the current filters.</td></tr>";
     el("sched").tBodies[0].innerHTML=body;
   }
+  function billableTotals(){
+    var bil=zeros(), non=zeros(), m;
+    state.assignments.forEach(function(a){
+      if(!a.project) return; var p=projByName(a.project); if(!p) return;
+      var tgt=(p.category==="overhead")?non:bil;
+      for(m=0;m<N;m++) tgt[m]+=toNum(a.hours[m]);
+    });
+    return {bil:bil, non:non};
+  }
   function renderUtil(){
     var D=derive();
     var head="<tr><th class='stick'>Employee</th><th style='text-align:left'>Primary role</th><th>Cap</th>";
-    MONTHS.forEach(function(m){ head+="<th>"+abbr(m)+"</th>"; }); head+="<th>Total</th><th>Avg util</th><th></th></tr>";
+    for(var hc=0;hc<WIN;hc++){ head+="<th>"+abbr(MONTHS[viewStart+hc])+"</th>"; } head+="<th>Total</th><th>Avg util</th><th></th></tr>";
     el("util").tHead.innerHTML=head;
     var body="";
     state.employees.forEach(function(e){
-      var name=e.name, hrs=D.emp[name]||zeros(), total=hrs.reduce(function(a,b){return a+b;},0), role=e.role;
+      var name=e.name, hrs=D.emp[name]||zeros(), role=e.role, total=0, c, h;
+      for(c=0;c<WIN;c++) total+=hrs[viewStart+c];
       if(!role){ var rc={}; state.assignments.forEach(function(a){ if(a.emp===name&&a.role)rc[a.role]=(rc[a.role]||0)+1; }); role=Object.keys(rc).sort(function(x,y){return rc[y]-rc[x];})[0]||"—"; }
-      var avg=total/(CAP*12), pct=Math.round(avg*100), w=Math.min(100,pct), col=avg>1?"var(--gap)":(avg<0.6?"var(--warn)":"var(--active)");
+      var avg=total/(CAP*WIN), pct=Math.round(avg*100), w=Math.min(100,pct), col=avg>1?"var(--gap)":(avg<0.6?"var(--warn)":"var(--active)");
       var row="<tr><td class='stick'><div class='pname'>"+esc(name)+"</div></td><td class='role'>"+esc(role)+"</td><td class='num'>"+CAP+"</td>";
-      hrs.forEach(function(h){ var c="num"; if(h>OVER)c+=" over"; else if(h>0&&h<120)c+=" under"; else if(h===0)c+=" zero"; row+="<td class='"+c+"'>"+(h===0?"0":h)+"</td>"; });
+      for(c=0;c<WIN;c++){ h=hrs[viewStart+c]; var cc="num"; if(h>OVER)cc+=" over"; else if(h>0&&h<120)cc+=" under"; else if(h===0)cc+=" zero"; row+="<td class='"+cc+"'>"+(h===0?"0":h)+"</td>"; }
       row+="<td class='num'>"+total+"</td><td><div class='avgbar'><span class='pct'>"+pct+"%</span><span class='track'><span class='fill' style='width:"+w+"%;background:"+col+"'></span></span></div></td>";
       row+="<td><button class='del' data-rmemp='"+esc(name)+"' title='Remove employee'>×</button></td></tr>";
       body+=row;
     });
-    el("util").tBodies[0].innerHTML=body;
+    var bt=billableTotals(), k, bTot=0, nTot=0;
+    var brow="<tr class='sumrow bill'><td class='stick'>Billable hours</td><td class='role'></td><td class='num'></td>";
+    for(k=0;k<WIN;k++){ var bv=bt.bil[viewStart+k]; bTot+=bv; brow+="<td class='num'>"+(bv||"·")+"</td>"; }
+    brow+="<td class='num'>"+bTot+"</td><td></td><td></td></tr>";
+    var nrow="<tr class='sumrow nonbill'><td class='stick'>Non-billable (overhead)</td><td class='role'></td><td class='num'></td>";
+    for(k=0;k<WIN;k++){ var nv=bt.non[viewStart+k]; nTot+=nv; nrow+="<td class='num'>"+(nv||"·")+"</td>"; }
+    nrow+="<td class='num'>"+nTot+"</td><td></td><td></td></tr>";
+    el("util").tBodies[0].innerHTML=body+brow+nrow;
   }
 
   var current="assign";
@@ -454,9 +488,16 @@
   el("tab-sched").onclick=function(){selectTab("sched");};
   el("tab-util").onclick=function(){selectTab("util");};
 
+  // ---- month-window navigation ----
+  function updateWinUI(){ var e=el("winLabel"); if(e) e.textContent=MONTHS[viewStart]+" → "+MONTHS[viewStart+WIN-1]; var pv=el("winPrev"), nx=el("winNext"); if(pv)pv.disabled=(viewStart<=0); if(nx)nx.disabled=(viewStart>=N-WIN); }
+  function moveWin(delta){ var v=Math.max(0,Math.min(N-WIN, viewStart+delta)); if(v===viewStart)return; viewStart=v; updateWinUI(); renderKPIs(); renderCurrent(); }
+  el("winPrev").onclick=function(){ moveWin(-1); };
+  el("winNext").onclick=function(){ moveWin(1); };
+  el("winToday").onclick=function(){ var v=curMonthIdx(); if(v!==viewStart){ viewStart=v; updateWinUI(); renderKPIs(); renderCurrent(); } };
+
   el("assign").tBodies[0].addEventListener("input",function(ev){
     var t=ev.target; if(!t.classList.contains("hr"))return; var a=findA(t.dataset.id); if(!a)return;
-    a.hours[+t.dataset.m]=toNum(t.value); var tot=a.hours.reduce(function(x,y){return x+toNum(y);},0);
+    a.hours[+t.dataset.m]=toNum(t.value); var tot=0; for(var wc=0;wc<WIN;wc++) tot+=toNum(a.hours[viewStart+wc]);
     var tc=el("tot-"+a.id); if(tc)tc.textContent=tot||""; renderKPIs(); queueSave();
   });
   el("assign").tBodies[0].addEventListener("change",function(ev){
@@ -521,12 +562,13 @@
   el("print").onclick=function(){ window.print(); };
   el("csv").onclick=function(){
     var rows,fname;
+    var winMonths=MONTHS.slice(viewStart,viewStart+WIN);
     if(current==="assign"){
-      fname="labor-plan.csv"; rows=[["Employee","Role","Project"].concat(MONTHS).concat(["Total"])];
-      state.assignments.slice().sort(function(a,b){return (a.emp||"~")<(b.emp||"~")?-1:1;}).forEach(function(a){ var tot=a.hours.reduce(function(x,y){return x+toNum(y);},0); rows.push([a.emp,a.role,a.project].concat(a.hours.map(function(h){return toNum(h);})).concat([tot])); });
+      fname="labor-plan.csv"; rows=[["Employee","Role","Project"].concat(winMonths).concat(["Total"])];
+      state.assignments.slice().sort(function(a,b){return (a.emp||"~")<(b.emp||"~")?-1:1;}).forEach(function(a){ var tot=0,hh=[]; for(var c=0;c<WIN;c++){ var v=toNum(a.hours[viewStart+c]); hh.push(v); tot+=v; } rows.push([a.emp,a.role,a.project].concat(hh).concat([tot])); });
     } else {
-      var D=derive(); fname="staffing-coverage.csv"; rows=[["Project","Category","Needs SS","Needs PM","Total gaps"].concat(MONTHS)];
-      state.projects.forEach(function(p){ if(!catFilter[p.category])return; var g=gapsFor(p,D); if(onlyGaps&&g.total===0)return; var r=[p.name,p.category,p.needsSS?"Yes":"No",p.needsPM?"Yes":"No",g.total]; for(var m=0;m<12;m++){ if(!p.active[m]){r.push("");continue;} var pr=[]; if(p.needsSS)pr.push(D.ss[p.name][m]>0?"SS ok":"SS GAP"); if(p.needsPM)pr.push(D.pm[p.name][m]>0?"PM ok":"PM GAP"); r.push("active"+(pr.length?" ("+pr.join("; ")+")":"")); } rows.push(r); });
+      var D=derive(); fname="staffing-coverage.csv"; rows=[["Project","Category","Needs SS","Needs PM","Total gaps"].concat(winMonths)];
+      state.projects.forEach(function(p){ if(!catFilter[p.category])return; var g=gapsFor(p,D); if(onlyGaps&&g.total===0)return; var r=[p.name,p.category,p.needsSS?"Yes":"No",p.needsPM?"Yes":"No",g.total]; for(var c=0;c<WIN;c++){ var m=viewStart+c; if(!p.active[m]){r.push("");continue;} var pr=[]; if(p.needsSS)pr.push(D.ss[p.name][m]>0?"SS ok":"SS GAP"); if(p.needsPM)pr.push(D.pm[p.name][m]>0?"PM ok":"PM GAP"); r.push("active"+(pr.length?" ("+pr.join("; ")+")":"")); } rows.push(r); });
     }
     var csv=rows.map(function(r){ return r.map(function(c){ c=String(c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(","); }).join("\n");
     var blob=new Blob([csv],{type:"text/csv"}), url=URL.createObjectURL(blob), aa=document.createElement("a");
