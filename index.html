@@ -59,7 +59,7 @@
   .chkpt{font-weight:700; color:var(--brand)}
   .autov{color:var(--faint); font-family:var(--mono); font-size:.72rem}
   #hist td{text-align:left}
-  body.previewing #view-assign input, body.previewing #view-assign select, body.previewing #view-assign .del, body.previewing #view-assign .addwrap, body.previewing #view-sched .cell, body.previewing #view-sched .req, body.previewing #view-sched .del, body.previewing #view-sched .addwrap, body.previewing #view-util .del, body.previewing #view-util .addwrap{ pointer-events:none; opacity:.5 }
+  body.previewing #view-assign input, body.previewing #view-assign select, body.previewing #view-assign .del, body.previewing #view-assign .addwrap, body.previewing #view-sched .cell, body.previewing #view-sched .req, body.previewing #view-sched select,body.previewing #view-sched .del, body.previewing #view-sched .addwrap, body.previewing #view-util .del, body.previewing #view-contract input,body.previewing #view-util .addwrap{ pointer-events:none; opacity:.5 }
 
   .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px}
   @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr)} }
@@ -139,6 +139,20 @@
   .cell.offsched:hover{border-color:var(--warn)}
   .badge{font-family:var(--mono); font-weight:700; font-size:.66rem; width:17px; height:17px; border-radius:5px; display:flex; align-items:center; justify-content:center; color:#fff}
   .badge.s.ok{background:var(--ss)} .badge.p.ok{background:var(--pm)} .badge.gap{background:var(--gap)} .badge.off{background:transparent; color:var(--warn); border:1px solid var(--warn)}
+  .badge.wv{background:transparent; color:var(--faint); border:1px dashed var(--faint); text-decoration:line-through}
+  .badge[data-r]{cursor:pointer} .badge[data-r]:hover{outline:2px solid var(--brand); outline-offset:1px}
+  td.ends{min-width:84px} select.endsel{max-width:92px; font-size:.76rem; padding:5px 4px}
+  td.mon.endm{box-shadow:inset -3px 0 0 var(--brand)}
+  td.mon.pastend .cell.inactive{opacity:.35}
+  input.cv{width:104px}
+  .money td.num{font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; padding-right:12px}
+  .money tr.jobrow td{background:var(--surface-3); font-weight:700; border-top:2px solid var(--line-strong)}
+  .money tr.jobrow td.stick{background:var(--surface-3)}
+  .money td.person{padding-left:30px; color:var(--ink)}
+  .money td.role{text-align:left; color:var(--muted); font-size:.78rem; white-space:nowrap}
+  .money .jobmeta{display:block; font-family:var(--mono); font-size:.68rem; font-weight:500; color:var(--muted)}
+  .money tr.sumrow td{font-weight:700; border-top:2px solid var(--line-strong); background:var(--surface-3)}
+  .money tr.sumrow td.stick{background:var(--surface-3)}
   td.gapcount{font-family:var(--mono); font-weight:700; font-variant-numeric:tabular-nums; color:var(--gap)}
   td.gapcount.zero{color:var(--faint); font-weight:400}
 
@@ -206,6 +220,7 @@
       <button role="tab" id="tab-assign" aria-selected="true">Assignments</button>
       <button role="tab" id="tab-sched" aria-selected="false">Schedule &amp; Coverage</button>
       <button role="tab" id="tab-util" aria-selected="false">Utilization &amp; People</button>
+      <button role="tab" id="tab-contract" aria-selected="false">Contract $</button>
       <button role="tab" id="tab-history" aria-selected="false">History</button>
     </div>
     <span class="spacer"></span>
@@ -246,6 +261,8 @@
       <div><span class="lg" style="background:var(--pm)">P</span> Project Manager staffed</div>
       <div><span class="lg gp"></span><span class="lg" style="background:var(--gap)">S</span> Required role missing — a gap</div>
       <div><span class="lg off"></span> Staffed but not marked active — off-schedule (click to fix)</div>
+      <div><span class="lg" style="background:transparent;color:var(--faint);border:1px dashed var(--faint);text-decoration:line-through">S</span> Role not needed this month (click a badge to toggle)</div>
+      <div><span class="lg" style="background:transparent;box-shadow:inset -3px 0 0 var(--brand)"></span> Project end month — SS/PM hours carry forward until then</div>
     </div>
   </section>
 
@@ -262,6 +279,13 @@
       <div><span class="lg" style="background:var(--gap)"></span> Overstaffed (over 180 h/mo)</div>
       <div><span class="lg" style="background:var(--warn)"></span> Light or unstaffed month (under 120 h, incl. 0)</div>
       <div>Capacity 180 h/mo. My Estate Care is uncapped (external).</div>
+    </div>
+  </section>
+
+  <section id="view-contract" class="hide">
+    <div class="panel money"><div class="table-wrap"><table id="contract"><thead></thead><tbody></tbody></table></div></div>
+    <div class="legend">
+      <div>Each job's contract value is split across its assigned <b style="color:var(--ink)">Site Supervision</b> and <b style="color:var(--ink)">Project Manager</b> hours over the whole job: $/hr = contract ÷ total SS+PM hours. Unassigned SS/PM hours count too and show as their own “unassigned” line.</div>
     </div>
   </section>
 
@@ -312,9 +336,12 @@
   function projNames(){ return state.projects.map(function(p){return p.name;}); }
   function projByName(n){ for(var i=0;i<state.projects.length;i++){ if(state.projects[i].name===n) return state.projects[i]; } return null; }
   function padTo(arr){ arr=Array.isArray(arr)?arr.slice():[]; while(arr.length<N)arr.push(0); return arr; }
-  function normalizeTimeline(s){ (s.assignments||[]).forEach(function(a){ a.hours=padTo(a.hours); }); (s.projects||[]).forEach(function(p){ p.active=padTo(p.active); }); }
+  function normalizeTimeline(s){ (s.assignments||[]).forEach(function(a){ a.hours=padTo(a.hours); }); (s.projects||[]).forEach(function(p){ p.active=padTo(p.active); p.ssOff=padTo(p.ssOff); p.pmOff=padTo(p.pmOff); if(typeof p.end!=="number")p.end=null; p.contract=toNum(p.contract); }); }
   function migrate(s){ (s.employees||[]).forEach(function(e){ if(e.name==="My estate care"){ e.name="My Estate Care"; e.nocap=true; } }); (s.assignments||[]).forEach(function(a){ if(a.emp==="My estate care") a.emp="My Estate Care"; }); }
   function ensureShape(s){ if(!s.employees)s.employees=[]; if(!s.projects)s.projects=[]; if(!s.assignments)s.assignments=[]; normalizeTimeline(s); migrate(s); }
+  // per-month requirement: project-level S/P, minus any months switched off
+  function needsSSAt(p,m){ return !!p.needsSS && !p.ssOff[m]; }
+  function needsPMAt(p,m){ return !!p.needsPM && !p.pmOff[m]; }
   function computeNextId(){ return state.assignments.reduce(function(mx,a){return Math.max(mx,a.id);},-1)+1; }
 
   // ---- sync ----
@@ -354,15 +381,57 @@
         else if(status==="CHANNEL_ERROR"||status==="TIMED_OUT") setStatus("error");
       });
   }
+  // ---- end months & carry-over ----
+  // A project with an end month stays active through it: each month that newly enters the
+  // calendar copies the prior month's active flag and SS/PM hours (only into empty cells).
+  function realMonthIdx(){ var d=new Date(); return (d.getFullYear()-ANCHOR_Y)*12+(d.getMonth()-ANCHOR_M); }
+  function horizon(){ return Math.min(N-1, realMonthIdx()+WIN-1); }
+  function carryInto(p,m){
+    if(m<1||m>=N||p.end==null||m>p.end||!p.active[m-1]) return false;
+    var ch=false;
+    if(!p.active[m]){ p.active[m]=1; ch=true; }
+    state.assignments.forEach(function(a){
+      if(a.project!==p.name||(a.role!=="Site Supervision"&&a.role!=="Project Manager")) return;
+      if(!toNum(a.hours[m]) && toNum(a.hours[m-1])>0){ a.hours[m]=a.hours[m-1]; ch=true; }
+    });
+    return ch;
+  }
+  function rollover(){
+    var target=horizon();
+    if(typeof state.rolledThrough!=="number"){ state.rolledThrough=target; return true; }
+    if(target<=state.rolledThrough) return false;
+    for(var m=state.rolledThrough+1;m<=target;m++) state.projects.forEach(function(p){ carryInto(p,m); });
+    state.rolledThrough=target; return true;
+  }
+  function extendToEnd(p){
+    var last=-1, stop=Math.min(p.end, horizon()), m;
+    for(m=0;m<=stop;m++) if(p.active[m]) last=m;
+    if(last<0) return;
+    for(m=last+1;m<=stop;m++) carryInto(p,m);
+  }
+  function bootFail(msg){
+    el("gate").classList.remove("hide");
+    el("gateErr").textContent=msg;
+    var b=el("gateBtn"); b.disabled=false; b.textContent="Try again";
+  }
   function boot(){
     setStatus("saving");
-    db.from("plan").select("data,updated_by").eq("id",1).single().then(function(res){
-      if(res.error||!res.data){ el("sync").textContent="Couldn't load plan — refresh the page"; return; }
-      state=res.data.data; ensureShape(state); nextId=computeNextId();
-      el("approot").style.visibility="visible";
-      updateWinUI(); renderKPIs(); selectTab("assign"); setStatus("synced", res.data.updated_by);
-      subscribe();
-    });
+    var b=el("gateBtn"); b.disabled=true; b.textContent="Loading\u2026";
+    var DBDOWN=" The plan database isn't responding \u2014 the Supabase project is likely paused. Ask David to restore it in the Supabase dashboard.";
+    var t=setTimeout(function(){ bootFail("Timed out loading the plan."+DBDOWN); },15000);
+    function fail(detail){ clearTimeout(t); bootFail("Couldn't load the plan"+(detail?" ("+detail+")":"")+"."+DBDOWN); }
+    try{
+      db.from("plan").select("data,updated_by").eq("id",1).single().then(function(res){
+        if(res.error||!res.data){ fail(res.error&&res.error.message?res.error.message:"no data returned"); return; }
+        clearTimeout(t); b.disabled=false; b.textContent="Open the planner";
+        state=res.data.data; ensureShape(state); nextId=computeNextId();
+        var rolled=rollover();
+        el("approot").style.visibility="visible";
+        updateWinUI(); renderKPIs(); selectTab("assign"); setStatus("synced", res.data.updated_by);
+        subscribe();
+        if(rolled) queueSave();
+      }, function(err){ fail(err&&err.message?err.message:"network error"); });
+    }catch(e){ fail(e&&e.message?e.message:String(e)); }
   }
 
   // ---- render ----
@@ -382,7 +451,7 @@
     return {ss:ss,pm:pm,emp:emp};
   }
   function whoOn(project,role,m){ var n=[]; state.assignments.forEach(function(a){ if(a.project===project&&a.role===role&&a.emp&&toNum(a.hours[m])>0) n.push(a.emp); }); return n; }
-  function gapsFor(p,D){ var ss=[],pm=[]; for(var m=viewStart;m<viewStart+WIN;m++){ if(!p.active[m])continue; if(p.needsSS&&(D.ss[p.name]?D.ss[p.name][m]:0)<=0)ss.push(m); if(p.needsPM&&(D.pm[p.name]?D.pm[p.name][m]:0)<=0)pm.push(m); } return {ss:ss,pm:pm,total:ss.length+pm.length}; }
+  function gapsFor(p,D){ var ss=[],pm=[]; for(var m=viewStart;m<viewStart+WIN;m++){ if(!p.active[m])continue; if(needsSSAt(p,m)&&(D.ss[p.name]?D.ss[p.name][m]:0)<=0)ss.push(m); if(needsPMAt(p,m)&&(D.pm[p.name]?D.pm[p.name][m]:0)<=0)pm.push(m); } return {ss:ss,pm:pm,total:ss.length+pm.length}; }
   function offSchedFor(p,D){ var out=[]; if(p.category==="overhead") return out; for(var m=viewStart;m<viewStart+WIN;m++){ if(!p.active[m] && (((D.ss[p.name]?D.ss[p.name][m]:0)>0)||((D.pm[p.name]?D.pm[p.name][m]:0)>0))) out.push(m); } return out; }
   function totals(){
     var D=derive(),gaps=0,projGaps=0,activeProjects=0,off=0;
@@ -401,8 +470,9 @@
   }
   var HELP={
     assign:"<b>Assignments:</b> type <b>hours</b> into any month cell. Change the <b>Employee</b>, <b>Role</b>, or <b>Project</b> dropdown to reassign. <b>+ Add assignment</b> for a new job, <b>×</b> to remove. Everything syncs to your team live.",
-    sched:"<b>Schedule &amp; Coverage:</b> click a month to toggle a project <b>active</b> (green). <b>S</b>/<b>P</b> set whether it needs a Site Supervisor or Project Manager; any active month missing a required role turns <b>red</b>. Add/remove projects at the bottom.",
+    sched:"<b>Schedule &amp; Coverage:</b> click a month to toggle a project <b>active</b> (green). <b>S</b>/<b>P</b> set whether it needs a Site Supervisor or Project Manager; click an <b>S</b>/<b>P</b> badge inside a month to switch that role off for just that month (e.g. no SS during budgeting). Any active month missing a required role turns <b>red</b>. Set <b>Ends</b> and the job stays active through that month — SS/PM hours carry forward as each new month appears. Add/remove projects at the bottom.",
     util:"<b>Utilization &amp; People:</b> each employee's planned hours vs. 180 h/month (red = over 180, amber = light). Add/remove employees at the bottom.",
+    contract:"<b>Contract $:</b> enter each job's <b>contract value</b> (here or on Schedule &amp; Coverage). It's split between the job's <b>PM</b> and <b>SS</b> lines (including unassigned ones) by their share of the job's total SS+PM hours, then spread across months by when those hours fall.",
     history:"<b>History:</b> every save is versioned automatically (throttled to a few minutes), plus named <b>checkpoints</b> you create. <b>Preview</b> a version without disturbing the team, or <b>Restore</b> to roll everyone back — a restore snapshots the current version first, so it's reversible."
   };
   function opts(list,val){ return list.map(function(o){ return "<option"+(o===val?" selected":"")+">"+esc(o)+"</option>"; }).join(""); }
@@ -433,7 +503,7 @@
   var catFilter={active:true,upcoming:true,small:false,overhead:false}, onlyGaps=false, onlyOff=false;
   function renderSched(){
     var D=derive();
-    var head="<tr><th class='stick'>Project</th><th>Needs</th>";
+    var head="<tr><th class='stick'>Project</th><th>Needs</th><th>Ends</th><th>Contract $</th>";
     for(var hc=0;hc<WIN;hc++){ head+="<th>"+abbr(MONTHS[viewStart+hc])+"</th>"; } head+="<th>Gaps</th><th></th></tr>";
     el("sched").tHead.innerHTML=head;
     var body="";
@@ -443,22 +513,77 @@
       if((onlyGaps||onlyOff) && !((onlyGaps&&g.total>0)||(onlyOff&&offm.length>0))) return;
       var row="<tr><td class='stick'><div class='pname'><span class='cat "+p.category+"'></span>"+esc(p.name)+"</div><span class='catword'>"+p.category+"</span></td>";
       row+="<td class='needs'><button class='req s "+(p.needsSS?'on':'off')+"' data-p='"+esc(p.name)+"' data-req='ss'>S</button><button class='req p "+(p.needsPM?'on':'off')+"' data-p='"+esc(p.name)+"' data-req='pm'>P</button></td>";
+      row+="<td class='ends'><select class='sel endsel' data-end='"+esc(p.name)+"' title='Last month of the job — SS/PM hours carry forward each month until then'><option value=''>—</option>";
+      for(var em=0;em<N;em++) row+="<option value='"+em+"'"+(p.end===em?" selected":"")+">"+MONTHS[em]+"</option>";
+      row+="</select></td>";
+      row+="<td class='hrcell'>"+cvInput(p)+"</td>";
       for(var c=0;c<WIN;c++){ var m=viewStart+c;
         var active=p.active[m], ssH=D.ss[p.name][m], pmH=D.pm[p.name][m];
         var offSched=!active && p.category!=="overhead" && (ssH>0||pmH>0);
-        var ssGap=active&&p.needsSS&&ssH<=0, pmGap=active&&p.needsPM&&pmH<=0, badges="";
-        if(active){ if(p.needsSS)badges+="<span class='badge s "+(ssH>0?'ok':'gap')+"'>S</span>"; if(p.needsPM)badges+="<span class='badge p "+(pmH>0?'ok':'gap')+"'>P</span>"; }
+        var nS=needsSSAt(p,m), nP=needsPMAt(p,m);
+        var ssGap=active&&nS&&ssH<=0, pmGap=active&&nP&&pmH<=0, badges="";
+        if(active){
+          if(p.needsSS)badges+="<span class='badge s "+(!nS?'wv':(ssH>0?'ok':'gap'))+"' data-r='ss' title='"+(nS?"Click: SS not needed this month":"Click: SS needed this month")+"'>S</span>";
+          if(p.needsPM)badges+="<span class='badge p "+(!nP?'wv':(pmH>0?'ok':'gap'))+"' data-r='pm' title='"+(nP?"Click: PM not needed this month":"Click: PM needed this month")+"'>P</span>";
+        }
         else if(offSched){ if(ssH>0)badges+="<span class='badge off'>S</span>"; if(pmH>0)badges+="<span class='badge off'>P</span>"; }
         var cls="cell "+(active?"active":"inactive")+((ssGap||pmGap)?" hasgap":"")+(offSched?" offsched":"");
         var sw=whoOn(p.name,"Site Supervision",m), pw=whoOn(p.name,"Project Manager",m);
-        var tip=MONTHS[m]+" — "+(active?"active":(offSched?"NOT active but staffed":"not active"))+" | SS: "+(sw.length?sw.join(", ")+" ("+ssH+"h)":(p.needsSS&&active?"none — needed":"—"))+" | PM: "+(pw.length?pw.join(", ")+" ("+pmH+"h)":(p.needsPM&&active?"none — needed":"—"))+(offSched?" — click to mark this month active":"");
-        row+="<td class='mon'><button class='"+cls+"' data-p='"+esc(p.name)+"' data-m='"+m+"' title='"+esc(tip)+"'>"+badges+"</button></td>";
+        var tip=MONTHS[m]+" — "+(active?"active":(offSched?"NOT active but staffed":"not active"))+" | SS: "+(sw.length?sw.join(", ")+" ("+ssH+"h)":(nS&&active?"none — needed":(p.needsSS&&!nS?"not needed this month":"—")))+" | PM: "+(pw.length?pw.join(", ")+" ("+pmH+"h)":(nP&&active?"none — needed":(p.needsPM&&!nP?"not needed this month":"—")))+(p.end===m?" | END MONTH":"")+(offSched?" — click to mark this month active":"");
+        var tdc="mon"+(p.end===m?" endm":"")+(p.end!=null&&m>p.end?" pastend":"");
+        row+="<td class='"+tdc+"'><button class='"+cls+"' data-p='"+esc(p.name)+"' data-m='"+m+"' title='"+esc(tip)+"'>"+badges+"</button></td>";
       }
       row+="<td class='gapcount"+(g.total===0?" zero":"")+"'>"+(g.total||"·")+"</td><td><button class='del' data-rmproj='"+esc(p.name)+"' title='Remove project'>×</button></td></tr>";
       body+=row;
     });
-    if(!body) body="<tr><td class='stick'>—</td><td colspan='15' style='text-align:left;color:var(--muted);padding-left:12px'>No projects match the current filters.</td></tr>";
+    if(!body) body="<tr><td class='stick'>—</td><td colspan='17' style='text-align:left;color:var(--muted);padding-left:12px'>No projects match the current filters.</td></tr>";
     el("sched").tBodies[0].innerHTML=body;
+  }
+  // ---- contract value split ----
+  function cvInput(p){ return "<input class='hr cv' type='number' min='0' step='1000' placeholder='$' data-cv='"+esc(p.name)+"' value='"+(p.contract||"")+"'>"; }
+  function fmtMoney(v){ return v?"$"+Math.round(v).toLocaleString():"·"; }
+  // SS/PM people on a job, merged by employee+role; rate = contract / all assigned SS+PM hours on the job
+  function contractSplit(p){
+    var people={}, order=[], hrs=0;
+    state.assignments.forEach(function(a){
+      if(a.project!==p.name||(a.role!=="Site Supervision"&&a.role!=="Project Manager")) return;
+      var k=(a.emp||"")+"|"+a.role; if(!people[k]){ people[k]={emp:a.emp||"", role:a.role, hours:zeros()}; order.push(k); }
+      for(var m=0;m<N;m++){ var h=toNum(a.hours[m]); people[k].hours[m]+=h; hrs+=h; }
+    });
+    order.sort(function(x,y){ var a=people[x],b=people[y]; if(a.role!==b.role) return a.role==="Project Manager"?-1:1; return (a.emp||"~~")<(b.emp||"~~")?-1:1; });
+    return {people:order.map(function(k){return people[k];}), hours:hrs, rate:(p.contract>0&&hrs>0)?p.contract/hrs:0};
+  }
+  function renderContract(){
+    var head="<tr><th class='stick'>Job / person</th><th style='text-align:left'>Role</th>";
+    for(var hc=0;hc<WIN;hc++){ head+="<th>"+abbr(MONTHS[viewStart+hc])+"</th>"; } head+="<th>In view</th><th>Job total</th></tr>";
+    el("contract").tHead.innerHTML=head;
+    var body="", grand=zeros(), gView=0, gJob=0, c, m;
+    state.projects.forEach(function(p){
+      if(p.category==="overhead") return;
+      var sp=contractSplit(p);
+      if(!p.contract && !sp.people.length) return;
+      var jm=zeros(), jView=0;
+      sp.people.forEach(function(x){ for(m=0;m<N;m++) jm[m]+=x.hours[m]*sp.rate; });
+      var meta=!p.contract?"enter a contract value":(sp.hours?("$"+Math.round(sp.rate).toLocaleString()+"/hr · "+sp.hours+" h total"):"no SS/PM hours assigned yet");
+      var jr="<tr class='jobrow'><td class='stick'><div class='pname'><span class='cat "+p.category+"'></span>"+esc(p.name)+"</div><span class='jobmeta'>"+meta+"</span></td><td class='role'>"+cvInput(p)+"</td>";
+      for(c=0;c<WIN;c++){ m=viewStart+c; jView+=jm[m]; grand[m]+=jm[m]; jr+="<td class='num'>"+fmtMoney(jm[m])+"</td>"; }
+      var jTot=sp.rate?p.contract:0; gView+=jView; gJob+=jTot;
+      jr+="<td class='num'>"+fmtMoney(jView)+"</td><td class='num'>"+fmtMoney(jTot)+"</td></tr>";
+      body+=jr;
+      sp.people.forEach(function(x){
+        var r="<tr><td class='stick person'>"+(x.emp?esc(x.emp):"<span style='color:var(--muted)'>— unassigned —</span>")+"</td><td class='role'>"+(x.role==="Project Manager"?"PM":"SS")+"</td>", v=0, tot=0;
+        for(m=0;m<N;m++) tot+=x.hours[m]*sp.rate;
+        for(c=0;c<WIN;c++){ var d=x.hours[viewStart+c]*sp.rate; v+=d; r+="<td class='num'>"+fmtMoney(d)+"</td>"; }
+        body+=r+"<td class='num'>"+fmtMoney(v)+"</td><td class='num'>"+fmtMoney(tot)+"</td></tr>";
+      });
+    });
+    if(!body) body="<tr><td class='stick'>—</td><td colspan='"+(WIN+3)+"' style='text-align:left;color:var(--muted);padding-left:12px'>No jobs yet — enter a contract value on the Schedule &amp; Coverage tab or here.</td></tr>";
+    else { var sr="<tr class='sumrow'><td class='stick'>All jobs</td><td class='role'></td>"; for(c=0;c<WIN;c++) sr+="<td class='num'>"+fmtMoney(grand[viewStart+c])+"</td>"; body+=sr+"<td class='num'>"+fmtMoney(gView)+"</td><td class='num'>"+fmtMoney(gJob)+"</td></tr>"; }
+    el("contract").tBodies[0].innerHTML=body;
+  }
+  function onContractInput(ev){
+    var t=ev.target; if(!t.matches||!t.matches("input[data-cv]")) return; var p=projByName(t.dataset.cv); if(!p) return;
+    p.contract=toNum(t.value); if(current==="contract") renderContract(); queueSave();
   }
   function billableTotals(){
     var bil=zeros(), non=zeros(), m;
@@ -503,10 +628,10 @@
   }
 
   var current="assign";
-  function renderCurrent(){ if(current==="assign")renderAssign(); else if(current==="sched")renderSched(); else if(current==="util")renderUtil(); else if(current==="history")loadHistory(); }
+  function renderCurrent(){ if(current==="assign")renderAssign(); else if(current==="sched")renderSched(); else if(current==="util")renderUtil(); else if(current==="contract")renderContract(); else if(current==="history")loadHistory(); }
   function selectTab(t){
     current=t;
-    ["assign","sched","util","history"].forEach(function(x){ el("tab-"+x).setAttribute("aria-selected",t===x); el("view-"+x).classList.toggle("hide",t!==x); });
+    ["assign","sched","util","contract","history"].forEach(function(x){ el("tab-"+x).setAttribute("aria-selected",t===x); el("view-"+x).classList.toggle("hide",t!==x); });
     el("help").innerHTML=HELP[t]||"";
     renderCurrent();
   }
@@ -515,6 +640,9 @@
   el("tab-assign").onclick=function(){selectTab("assign");};
   el("tab-sched").onclick=function(){selectTab("sched");};
   el("tab-util").onclick=function(){selectTab("util");};
+  el("tab-contract").onclick=function(){selectTab("contract");};
+  el("sched").tBodies[0].addEventListener("change",onContractInput);
+  el("contract").tBodies[0].addEventListener("change",onContractInput);
 
   // ---- month-window navigation ----
   function updateWinUI(){ var e=el("winLabel"); if(e) e.textContent=MONTHS[viewStart]+" → "+MONTHS[viewStart+WIN-1]; var pv=el("winPrev"), nx=el("winNext"); if(pv)pv.disabled=(viewStart<=0); if(nx)nx.disabled=(viewStart>=N-WIN); }
@@ -540,8 +668,19 @@
 
   el("sched").tBodies[0].addEventListener("click",function(ev){
     var del=ev.target.closest(".del"); if(del){ removeProject(del.dataset.rmproj); return; }
+    var bdg=ev.target.closest(".badge[data-r]"); if(bdg){ var cb=bdg.closest(".cell"), pb=cb&&projByName(cb.dataset.p); if(pb){ var mb=+cb.dataset.m, arr=bdg.dataset.r==="ss"?pb.ssOff:pb.pmOff; arr[mb]=arr[mb]?0:1; renderSched(); renderKPIs(); queueSave(); } return; }
     var cell=ev.target.closest(".cell"); if(cell){ var p=projByName(cell.dataset.p); if(p){ var m=+cell.dataset.m; p.active[m]=p.active[m]?0:1; renderSched(); renderKPIs(); queueSave(); } return; }
     var req=ev.target.closest(".req"); if(req){ var p2=projByName(req.dataset.p); if(p2){ if(req.dataset.req==="ss")p2.needsSS=!p2.needsSS; else p2.needsPM=!p2.needsPM; renderSched(); renderKPIs(); queueSave(); } }
+  });
+  el("sched").tBodies[0].addEventListener("change",function(ev){
+    var s=ev.target.closest("select[data-end]"); if(!s)return; var p=projByName(s.dataset.end); if(!p)return;
+    p.end=s.value===""?null:+s.value;
+    if(p.end!=null){
+      var after=[]; for(var m=p.end+1;m<N;m++) if(p.active[m]) after.push(m);
+      if(after.length && confirm("Mark the "+after.length+" active month(s) after "+MONTHS[p.end]+" as not active?")) after.forEach(function(m){ p.active[m]=0; });
+      extendToEnd(p);
+    }
+    renderSched(); renderKPIs(); queueSave();
   });
   el("filters").addEventListener("click",function(ev){
     var chip=ev.target.closest(".chip"); if(!chip)return;
@@ -561,7 +700,7 @@
     if(!name){ alert("Enter a project name first."); return; }
     if(state.projects.some(function(p){return p.name.toLowerCase()===name.toLowerCase();})){ alert("A project with that name already exists."); return; }
     var need=(cat==="active"||cat==="upcoming");
-    state.projects.push({name:name,category:cat,active:zeros(),needsSS:need,needsPM:need});
+    state.projects.push({name:name,category:cat,active:zeros(),needsSS:need,needsPM:need,ssOff:zeros(),pmOff:zeros(),end:null});
     catFilter[cat]=true; var chip=document.querySelector('.chip[data-cat="'+cat+'"]'); if(chip)chip.setAttribute("aria-pressed","true");
     el("newProjName").value=""; renderKPIs(); renderSched(); queueSave();
   };
@@ -594,9 +733,12 @@
     if(current==="assign"){
       fname="labor-plan.csv"; rows=[["Employee","Role","Project"].concat(winMonths).concat(["Total"])];
       state.assignments.slice().sort(function(a,b){return (a.emp||"~")<(b.emp||"~")?-1:1;}).forEach(function(a){ var tot=0,hh=[]; for(var c=0;c<WIN;c++){ var v=toNum(a.hours[viewStart+c]); hh.push(v); tot+=v; } rows.push([a.emp,a.role,a.project].concat(hh).concat([tot])); });
+    } else if(current==="contract"){
+      fname="contract-split.csv"; rows=[["Job","Contract","Employee","Role"].concat(winMonths).concat(["In view","Job total"])];
+      state.projects.forEach(function(p){ if(p.category==="overhead")return; var sp=contractSplit(p); sp.people.forEach(function(x){ var v=0,tot=0,mm=[],k; for(k=0;k<N;k++) tot+=x.hours[k]*sp.rate; for(k=0;k<WIN;k++){ var d=Math.round(x.hours[viewStart+k]*sp.rate); mm.push(d); v+=d; } rows.push([p.name,p.contract||"",x.emp||"(unassigned)",x.role].concat(mm).concat([v,Math.round(tot)])); }); });
     } else {
-      var D=derive(); fname="staffing-coverage.csv"; rows=[["Project","Category","Needs SS","Needs PM","Total gaps"].concat(winMonths)];
-      state.projects.forEach(function(p){ if(!catFilter[p.category])return; var g=gapsFor(p,D); if(onlyGaps&&g.total===0)return; var r=[p.name,p.category,p.needsSS?"Yes":"No",p.needsPM?"Yes":"No",g.total]; for(var c=0;c<WIN;c++){ var m=viewStart+c; if(!p.active[m]){r.push("");continue;} var pr=[]; if(p.needsSS)pr.push(D.ss[p.name][m]>0?"SS ok":"SS GAP"); if(p.needsPM)pr.push(D.pm[p.name][m]>0?"PM ok":"PM GAP"); r.push("active"+(pr.length?" ("+pr.join("; ")+")":"")); } rows.push(r); });
+      var D=derive(); fname="staffing-coverage.csv"; rows=[["Project","Category","Needs SS","Needs PM","Ends","Total gaps"].concat(winMonths)];
+      state.projects.forEach(function(p){ if(!catFilter[p.category])return; var g=gapsFor(p,D); if(onlyGaps&&g.total===0)return; var r=[p.name,p.category,p.needsSS?"Yes":"No",p.needsPM?"Yes":"No",p.end!=null?MONTHS[p.end]:"",g.total]; for(var c=0;c<WIN;c++){ var m=viewStart+c; if(!p.active[m]){r.push("");continue;} var pr=[]; if(needsSSAt(p,m))pr.push(D.ss[p.name][m]>0?"SS ok":"SS GAP"); else if(p.needsSS)pr.push("SS not needed"); if(needsPMAt(p,m))pr.push(D.pm[p.name][m]>0?"PM ok":"PM GAP"); else if(p.needsPM)pr.push("PM not needed"); r.push("active"+(pr.length?" ("+pr.join("; ")+")":"")); } rows.push(r); });
     }
     var csv=rows.map(function(r){ return r.map(function(c){ c=String(c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(","); }).join("\n");
     var blob=new Blob([csv],{type:"text/csv"}), url=URL.createObjectURL(blob), aa=document.createElement("a");
@@ -620,7 +762,7 @@
     var pA=0,pR=0,sched=0;
     Object.keys(np).forEach(function(k){ if(!op[k])pA++; });
     Object.keys(op).forEach(function(k){ if(!np[k])pR++; });
-    Object.keys(np).forEach(function(k){ var p=np[k],q=op[k]; if(!q)return; if(p.needsSS!==q.needsSS||p.needsPM!==q.needsPM)sched++; var pa=p.active||[],qa=q.active||[],L=Math.max(pa.length,qa.length),mm; for(mm=0;mm<L;mm++){ if((pa[mm]?1:0)!==(qa[mm]?1:0)){ sched++; break; } } });
+    Object.keys(np).forEach(function(k){ var p=np[k],q=op[k]; if(!q)return; if(p.needsSS!==q.needsSS||p.needsPM!==q.needsPM||(p.end==null?null:p.end)!==(q.end==null?null:q.end)||toNum(p.contract)!==toNum(q.contract))sched++; if((p.ssOff||[]).join()!==(q.ssOff||[]).join()||(p.pmOff||[]).join()!==(q.pmOff||[]).join())sched++; var pa=p.active||[],qa=q.active||[],L=Math.max(pa.length,qa.length),mm; for(mm=0;mm<L;mm++){ if((pa[mm]?1:0)!==(qa[mm]?1:0)){ sched++; break; } } });
     if(pA)parts.push(pA+" project"+(pA>1?"s":"")+" added");
     if(pR)parts.push(pR+" project"+(pR>1?"s":"")+" removed");
     if(sched)parts.push(sched+" schedule change"+(sched>1?"s":""));
