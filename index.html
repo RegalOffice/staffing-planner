@@ -160,6 +160,9 @@
   .util td.over{background:var(--gap-soft); color:var(--gap); font-weight:700}
   .util td.under{background:var(--warn-soft); color:var(--warn)}
   .util td.zero{background:var(--warn-soft); color:var(--warn); font-weight:600}
+  .util td.unas{background:var(--gap-soft); color:var(--gap); font-weight:700}
+  .util tr.unasrow td.stick .pname{color:var(--gap)}
+  .util tr.unasrow.first td{border-top:2px solid var(--line-strong)}
   .util tr.sumrow td{font-weight:700; border-top:2px solid var(--line-strong); background:var(--surface-3)}
   .util tr.sumrow td.stick{background:var(--surface-3)}
   .util tr.sumrow.bill td.stick{color:var(--active)}
@@ -278,6 +281,7 @@
     <div class="legend">
       <div><span class="lg" style="background:var(--gap)"></span> Overstaffed (over 180 h/mo)</div>
       <div><span class="lg" style="background:var(--warn)"></span> Light or unstaffed month (under 120 h, incl. 0)</div>
+      <div><span class="lg gp"></span> Unassigned PM/SS hours still to staff (hover a cell for the jobs)</div>
       <div>Capacity 180 h/mo. My Estate Care is uncapped (external).</div>
     </div>
   </section>
@@ -477,7 +481,7 @@
   var HELP={
     assign:"<b>Assignments:</b> type <b>hours</b> into any month cell. Change the <b>Employee</b>, <b>Role</b>, or <b>Project</b> dropdown to reassign. <b>+ Add assignment</b> for a new job, <b>×</b> to remove. Everything syncs to your team live.",
     sched:"<b>Schedule &amp; Coverage:</b> click a month to toggle a project <b>active</b> (green). <b>S</b>/<b>P</b> set whether it needs a Site Supervisor or Project Manager; click an <b>S</b>/<b>P</b> badge inside a month to switch that role off for just that month (e.g. no SS during budgeting). Any active month missing a required role turns <b>red</b>. Set <b>Ends</b> and the job stays active through that month — SS/PM hours carry forward as each new month appears. Add/remove projects at the bottom.",
-    util:"<b>Utilization &amp; People:</b> each employee's planned hours vs. 180 h/month (red = over 180, amber = light). Add/remove employees at the bottom.",
+    util:"<b>Utilization &amp; People:</b> each employee's planned hours vs. 180 h/month (red = over 180, amber = light). <b>Unassigned PM</b> / <b>Unassigned SS</b> rows show hours on assignments with no employee yet — red means there are hours to staff. Add/remove employees at the bottom.",
     contract:"<b>Contract $:</b> enter each job's <b>contract value</b> (here or on Schedule &amp; Coverage). It's split between the job's <b>PM</b> and <b>SS</b> lines (including unassigned ones) by their share of the job's total SS+PM hours, then spread across months by when those hours fall. <b>OH&amp;P/hr</b> shows the OH&amp;P built into the contract per hour (set each job's OH&amp;P %, default 20%). Use <b>Group by</b> to switch between jobs and people.",
     history:"<b>History:</b> every save is versioned automatically (throttled to a few minutes), plus named <b>checkpoints</b> you create. <b>Preview</b> a version without disturbing the team, or <b>Restore</b> to roll everyone back — a restore snapshots the current version first, so it's reversible."
   };
@@ -651,6 +655,18 @@
         row+="<td class='num'>"+total+"</td><td><div class='avgbar'><span class='pct'>"+pct+"%</span><span class='track'><span class='fill' style='width:"+w+"%;background:"+col+"'></span></span></div></td>";
       }
       row+="<td><button class='del' data-rmemp='"+esc(name)+"' title='Remove employee'>×</button></td></tr>";
+      body+=row;
+    });
+    // unassigned PM/SS hours = what still needs staffing, by job title (red where > 0)
+    [["Project Manager","PM"],["Site Supervision","SS"]].forEach(function(rr,ri){
+      var hrs=zeros(), jobs=[], total=0, c, m;
+      for(m=0;m<N;m++) jobs.push({});
+      state.assignments.forEach(function(a){ if(a.emp||a.role!==rr[0]) return; for(m=0;m<N;m++){ var h=toNum(a.hours[m]); if(h){ hrs[m]+=h; var j=a.project||"no project"; jobs[m][j]=(jobs[m][j]||0)+h; } } });
+      var row="<tr class='unasrow"+(ri===0?" first":"")+"'><td class='stick'><div class='pname'>Unassigned "+rr[1]+"</div></td><td class='role'>"+rr[0]+" — to staff</td><td class='num'>—</td>";
+      for(c=0;c<WIN;c++){ m=viewStart+c; var h=hrs[m]; total+=h;
+        var tip=h?MONTHS[m]+" — "+Object.keys(jobs[m]).map(function(j){return j+" "+jobs[m][j]+"h";}).join(", "):"";
+        row+="<td class='num"+(h>0?" unas":"")+"'"+(tip?" title='"+esc(tip)+"'":"")+">"+(h||"·")+"</td>"; }
+      row+="<td class='num"+(total>0?" unas":"")+"'>"+(total||"·")+"</td><td></td><td></td></tr>";
       body+=row;
     });
     var bt=billableTotals(), k, bTot=0, nTot=0;
