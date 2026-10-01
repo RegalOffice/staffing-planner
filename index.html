@@ -59,7 +59,7 @@
   .chkpt{font-weight:700; color:var(--brand)}
   .autov{color:var(--faint); font-family:var(--mono); font-size:.72rem}
   #hist td{text-align:left}
-  body.previewing #view-assign input, body.previewing #view-assign select, body.previewing #view-assign .del, body.previewing #view-assign .addwrap, body.previewing #view-sched .cell, body.previewing #view-sched .req, body.previewing #view-sched select,body.previewing #view-sched .del, body.previewing #view-sched .addwrap, body.previewing #view-util .del, body.previewing #view-contract input,body.previewing #view-util .addwrap{ pointer-events:none; opacity:.5 }
+  body.previewing #view-assign table input, body.previewing #view-assign table select,body.previewing #view-assign .del, body.previewing #view-assign .addwrap, body.previewing #view-sched .cell, body.previewing #view-sched .req, body.previewing #view-sched select,body.previewing #view-sched .del, body.previewing #view-sched .addwrap, body.previewing #view-util .del, body.previewing #view-contract input,body.previewing #view-util .addwrap{ pointer-events:none; opacity:.5 }
 
   .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px}
   @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr)} }
@@ -151,6 +151,9 @@
   .money td.person{padding-left:30px; color:var(--ink)}
   .money td.role{text-align:left; color:var(--muted); font-size:.78rem; white-space:nowrap}
   .money .jobmeta{display:block; font-family:var(--mono); font-size:.68rem; font-weight:500; color:var(--muted)}
+  .money tr.ohprow td{color:var(--warn); font-size:.78rem}
+  .money tr.ohprow td.stick{font-style:italic}
+  .money tr.sumrow.ohprow td{border-top:1px solid var(--line)}
   .money tr.sumrow td{font-weight:700; border-top:2px solid var(--line-strong); background:var(--surface-3)}
   .money tr.sumrow td.stick{background:var(--surface-3)}
   td.gapcount{font-family:var(--mono); font-weight:700; font-variant-numeric:tabular-nums; color:var(--gap)}
@@ -233,6 +236,17 @@
   </div>
 
   <section id="view-assign">
+    <div class="filters" id="assignFilters">
+      <span class="lbl">Filter</span>
+      <select class="sel2" id="fEmp" title="Filter by employee"></select>
+      <select class="sel2" id="fProj" title="Filter by project"></select>
+      <select class="sel2" id="fRole" title="Filter by role"></select>
+      <button class="chip" id="fClear">Clear filters</button>
+      <span class="spacer"></span>
+      <span class="lbl">Sort by</span>
+      <button class="chip" data-sort="emp" aria-pressed="true">Employee</button>
+      <button class="chip" data-sort="project" aria-pressed="false">Project</button>
+    </div>
     <div class="panel"><div class="table-wrap"><table class="agrid" id="assign"><thead></thead><tbody></tbody></table></div>
       <div class="addwrap"><button class="btn primary mini" id="add">+ Add assignment</button></div>
     </div>
@@ -296,6 +310,7 @@
     <div class="legend">
       <div>Each job's contract value is split across its assigned <b style="color:var(--ink)">Site Supervision</b> and <b style="color:var(--ink)">Project Manager</b> hours over the whole job: $/hr = contract ÷ total SS+PM hours. Unassigned SS/PM hours count too and show as their own “unassigned” line.</div>
       <div><b style="color:var(--ink)">OH&amp;P/hr</b> = the OH&amp;P already inside the contract (OH&amp;P % of materials &amp; labor, so contract × %÷(100+%)) ÷ the same hours. Default 20%; edit per job on its row.</div>
+      <div><span style="color:var(--warn); font-weight:700">↳ OH&amp;P earned</span> rows show how much of each month's earned contract $ is OH&amp;P (hours × OH&amp;P/hr).</div>
     </div>
   </section>
 
@@ -479,7 +494,7 @@
       tile("brandk",t.activeProjects,"Active projects","with a scheduled month");
   }
   var HELP={
-    assign:"<b>Assignments:</b> type <b>hours</b> into any month cell. Change the <b>Employee</b>, <b>Role</b>, or <b>Project</b> dropdown to reassign. <b>+ Add assignment</b> for a new job, <b>×</b> to remove. Everything syncs to your team live.",
+    assign:"<b>Assignments:</b> use <b>Filter</b> to narrow to an employee, project or role, and <b>Sort by</b> employee or project. Type <b>hours</b> into any month cell. Change the <b>Employee</b>, <b>Role</b>, or <b>Project</b> dropdown to reassign. <b>+ Add assignment</b> for a new job, <b>×</b> to remove. Everything syncs to your team live.",
     sched:"<b>Schedule &amp; Coverage:</b> click a month to toggle a project <b>active</b> (green). <b>S</b>/<b>P</b> set whether it needs a Site Supervisor or Project Manager; click an <b>S</b>/<b>P</b> badge inside a month to switch that role off for just that month (e.g. no SS during budgeting). Any active month missing a required role turns <b>red</b>. Set <b>Ends</b> and the job stays active through that month — SS/PM hours carry forward as each new month appears. Add/remove projects at the bottom.",
     util:"<b>Utilization &amp; People:</b> each employee's planned hours vs. 180 h/month (red = over 180, amber = light). <b>Unassigned PM</b> / <b>Unassigned SS</b> rows show hours on assignments with no employee yet — red means there are hours to staff. Add/remove employees at the bottom.",
     contract:"<b>Contract $:</b> enter each job's <b>contract value</b> (here or on Schedule &amp; Coverage). It's split between the job's <b>PM</b> and <b>SS</b> lines (including unassigned ones) by their share of the job's total SS+PM hours, then spread across months by when those hours fall. <b>OH&amp;P/hr</b> shows the OH&amp;P built into the contract per hour (set each job's OH&amp;P %, default 20%). Use <b>Group by</b> to switch between jobs and people.",
@@ -492,10 +507,11 @@
     for(var hc=0;hc<WIN;hc++){ head+="<th>"+abbr(MONTHS[viewStart+hc])+"</th>"; } head+="<th>Total</th><th></th></tr>";
     el("assign").tHead.innerHTML=head;
     var names=empNames(), pnames=projNames();
-    var rows=state.assignments.slice().sort(function(a,b){ var ea=a.emp||"~~",eb=b.emp||"~~"; if(ea!==eb)return ea<eb?-1:1; var pa=a.project||"~~",pb=b.project||"~~"; return pa<pb?-1:(pa>pb?1:0); });
-    var body="",lastEmp=" ";
+    fillAssignFilters(names,pnames);
+    var rows=filteredAssignments();
+    var body="",lastKey=" ", gkey=aFilter.sort==="project"?"project":"emp";
     rows.forEach(function(a){
-      var gs=(a.emp!==lastEmp); lastEmp=a.emp;
+      var gs=(a[gkey]!==lastKey); lastKey=a[gkey];
       var total=0; for(var tc=0;tc<WIN;tc++) total+=toNum(a.hours[viewStart+tc]);
       var tr="<tr class='arow"+(gs?" gstart":"")+"'>";
       tr+="<td class='stick'><select class='sel' data-id='"+a.id+"' data-f='emp'><option value=''>— unassigned —</option>"+opts(names,a.emp)+"</select></td>";
@@ -506,8 +522,56 @@
       tr+="<td><button class='del' data-id='"+a.id+"' title='Remove'>×</button></td></tr>";
       body+=tr;
     });
+    if(!rows.length) body="<tr><td class='stick'>—</td><td colspan='"+(WIN+4)+"' style='text-align:left;color:var(--muted);padding-left:12px'>No assignments match these filters.</td></tr>";
+    else if(isFiltered()){
+      body+="<tr class='arow gstart'><td class='stick' style='font-weight:700'>Filtered total</td><td></td><td style='color:var(--muted);font-size:.78rem'>"+rows.length+" row"+(rows.length>1?"s":"")+"</td>";
+      for(var fc=0;fc<WIN;fc++) body+="<td class='tot' id='afoot-"+fc+"'></td>";
+      body+="<td class='tot' id='afoot-t'></td><td></td></tr>";
+    }
     el("assign").tBodies[0].innerHTML=body;
+    updateAssignFoot();
   }
+  // ---- assignment filters (per viewer) ----
+  var aFilter={emp:"",project:"",role:"",sort:"emp"};
+  try{ var savedF=JSON.parse(localStorage.getItem("bs_assignFilter")||"null"); if(savedF) aFilter=Object.assign(aFilter,savedF); }catch(e){}
+  var NONE="__none__";
+  function isFiltered(){ return !!(aFilter.emp||aFilter.project||aFilter.role); }
+  function matchF(val,f){ return !f || (f===NONE ? !val : val===f); }
+  function filteredAssignments(){
+    var k1=aFilter.sort==="project"?"project":"emp", k2=k1==="project"?"emp":"project";
+    return state.assignments.filter(function(a){ return matchF(a.emp,aFilter.emp)&&matchF(a.project,aFilter.project)&&matchF(a.role,aFilter.role); })
+      .sort(function(a,b){ var x=a[k1]||"~~",y=b[k1]||"~~"; if(x!==y)return x<y?-1:1; x=a[k2]||"~~"; y=b[k2]||"~~"; return x<y?-1:(x>y?1:0); });
+  }
+  function fillAssignFilters(names,pnames){
+    // drop a saved filter value that no longer exists
+    if(aFilter.emp&&aFilter.emp!==NONE&&names.indexOf(aFilter.emp)<0) aFilter.emp="";
+    if(aFilter.project&&aFilter.project!==NONE&&pnames.indexOf(aFilter.project)<0) aFilter.project="";
+    function o(v,label,cur){ return "<option value='"+esc(v)+"'"+(v===cur?" selected":"")+">"+esc(label)+"</option>"; }
+    el("fEmp").innerHTML=o("","All employees",aFilter.emp)+o(NONE,"— Unassigned —",aFilter.emp)+names.slice().sort().map(function(n){return o(n,n,aFilter.emp);}).join("");
+    el("fProj").innerHTML=o("","All projects",aFilter.project)+o(NONE,"— No project —",aFilter.project)+pnames.map(function(n){return o(n,n,aFilter.project);}).join("");
+    el("fRole").innerHTML=o("","All roles",aFilter.role)+ROLES.map(function(n){return o(n,n,aFilter.role);}).join("");
+    ["fEmp","fProj","fRole"].forEach(function(id){ el(id).style.borderColor=el(id).value?"var(--brand)":""; });
+    el("fClear").classList.toggle("hide",!isFiltered());
+    document.querySelectorAll("#assignFilters .chip[data-sort]").forEach(function(ch){ ch.setAttribute("aria-pressed",ch.dataset.sort===aFilter.sort); });
+  }
+  function updateAssignFoot(){
+    if(!el("afoot-t")) return;
+    var rows=filteredAssignments(), all=0;
+    for(var c=0;c<WIN;c++){ var s=0; rows.forEach(function(a){ s+=toNum(a.hours[viewStart+c]); }); all+=s; el("afoot-"+c).textContent=s||""; }
+    el("afoot-t").textContent=all||"";
+  }
+  function saveAssignFilter(){ try{ localStorage.setItem("bs_assignFilter",JSON.stringify(aFilter)); }catch(e){} }
+  el("assignFilters").addEventListener("change",function(ev){
+    var t=ev.target; if(t.id==="fEmp")aFilter.emp=t.value; else if(t.id==="fProj")aFilter.project=t.value; else if(t.id==="fRole")aFilter.role=t.value; else return;
+    saveAssignFilter(); renderAssign();
+  });
+  el("assignFilters").addEventListener("click",function(ev){
+    var ch=ev.target.closest(".chip"); if(!ch) return;
+    if(ch.id==="fClear"){ aFilter.emp=""; aFilter.project=""; aFilter.role=""; }
+    else if(ch.dataset.sort) aFilter.sort=ch.dataset.sort;
+    else return;
+    saveAssignFilter(); renderAssign();
+  });
   function findA(id){ for(var i=0;i<state.assignments.length;i++){ if(state.assignments[i].id==id) return state.assignments[i]; } return null; }
 
   var catFilter={active:true,upcoming:true,small:false,overhead:false}, onlyGaps=false, onlyOff=false;
@@ -585,14 +649,18 @@
     for(var hc=0;hc<WIN;hc++){ head+="<th>"+abbr(MONTHS[viewStart+hc])+"</th>"; } head+="<th>In view</th><th>Total</th></tr>";
     el("contract").tHead.innerHTML=head;
     var jobs=contractJobs(), body="", grand=zeros(), m;
-    jobs.forEach(function(j){ j.sp.people.forEach(function(x){ for(m=0;m<N;m++) grand[m]+=x.hours[m]*j.sp.rate; }); });
+    var grandOhp=zeros();
+    jobs.forEach(function(j){ j.sp.people.forEach(function(x){ for(m=0;m<N;m++){ grand[m]+=x.hours[m]*j.sp.rate; grandOhp[m]+=x.hours[m]*j.sp.ohpRate; } }); });
+    // OH&P portion of the $ earned each month, shown under a job / person / all-jobs row
+    function ohpRow(dollars){ return moneyRow("ohprow","<td class='stick person'>↳ OH&amp;P earned</td>","",0,0,dollars).html; }
     if(!byPerson){
       jobs.forEach(function(j){
-        var p=j.p, sp=j.sp, jd=zeros();
-        sp.people.forEach(function(x){ for(m=0;m<N;m++) jd[m]+=x.hours[m]*sp.rate; });
+        var p=j.p, sp=j.sp, jd=zeros(), jo=zeros();
+        sp.people.forEach(function(x){ for(m=0;m<N;m++){ jd[m]+=x.hours[m]*sp.rate; jo[m]+=x.hours[m]*sp.ohpRate; } });
         var meta=!p.contract?"enter a contract value":(sp.hours?(sp.hours+" h total"):"no SS/PM hours yet");
         var inputs=cvInput(p)+" <input class='hr' type='number' min='0' max='100' step='1' style='width:44px' title='OH&amp;P % of materials &amp; labor' data-ohp='"+esc(p.name)+"' value='"+toNum(p.ohp)+"'>%";
         body+=moneyRow("jobrow","<td class='stick'><div class='pname'><span class='cat "+p.category+"'></span>"+esc(p.name)+"</div><span class='jobmeta'>"+meta+"</span></td>",inputs,sp.rate,sp.ohpRate,jd).html;
+        if(sp.rate) body+=ohpRow(jo);
         sp.people.forEach(function(x){ body+=moneyRow("","<td class='stick person'>"+empLabel(x.emp)+"</td>",roleAbbr(x.role),sp.rate,sp.ohpRate,scaled(x.hours,sp.rate)).html; });
       });
     } else {
@@ -600,17 +668,18 @@
       jobs.forEach(function(j){ j.sp.people.forEach(function(x){ var k=x.emp; if(!people[k]){ people[k]=[]; keys.push(k); } people[k].push({p:j.p, sp:j.sp, x:x}); }); });
       keys.sort(function(a,b){ return (a||"~~")<(b||"~~")?-1:1; });
       keys.forEach(function(k){
-        var lines=people[k], pd=zeros(), od=0, ph=0, roles={};
+        var lines=people[k], pd=zeros(), po=zeros(), od=0, ph=0, roles={};
         lines.sort(function(a,b){ return a.p.name<b.p.name?-1:1; });
-        lines.forEach(function(l){ roles[roleAbbr(l.x.role)]=1; for(m=0;m<N;m++){ pd[m]+=l.x.hours[m]*l.sp.rate; if(l.sp.rate){ ph+=l.x.hours[m]; od+=l.x.hours[m]*l.sp.ohpRate; } } });
+        lines.forEach(function(l){ roles[roleAbbr(l.x.role)]=1; for(m=0;m<N;m++){ pd[m]+=l.x.hours[m]*l.sp.rate; po[m]+=l.x.hours[m]*l.sp.ohpRate; if(l.sp.rate){ ph+=l.x.hours[m]; od+=l.x.hours[m]*l.sp.ohpRate; } } });
         var pt=0; for(m=0;m<N;m++) pt+=pd[m];
         // blended rates across the person's priced jobs
         body+=moneyRow("jobrow","<td class='stick'><div class='pname'>"+empLabel(k)+"</div><span class='jobmeta'>"+lines.length+" job"+(lines.length>1?"s":"")+(ph?" · "+ph+" h priced":"")+"</span></td>",Object.keys(roles).join(" / "),ph?pt/ph:0,ph?od/ph:0,pd).html;
+        if(ph) body+=ohpRow(po);
         lines.forEach(function(l){ body+=moneyRow("","<td class='stick person'><span class='cat "+l.p.category+"' style='display:inline-block;margin-right:6px'></span>"+esc(l.p.name)+"</td>",roleAbbr(l.x.role),l.sp.rate,l.sp.ohpRate,scaled(l.x.hours,l.sp.rate)).html; });
       });
     }
     if(!body) body="<tr><td class='stick'>—</td><td colspan='"+(WIN+5)+"' style='text-align:left;color:var(--muted);padding-left:12px'>No jobs yet — enter a contract value on the Schedule &amp; Coverage tab or here.</td></tr>";
-    else body+=moneyRow("sumrow","<td class='stick'>All jobs</td>","",0,0,grand).html;
+    else body+=moneyRow("sumrow","<td class='stick'>All jobs</td>","",0,0,grand).html+moneyRow("sumrow ohprow","<td class='stick'>All jobs — OH&amp;P earned</td>","",0,0,grandOhp).html;
     el("contract").tBodies[0].innerHTML=body;
   }
   el("contractBy").addEventListener("click",function(ev){
@@ -706,7 +775,7 @@
   el("assign").tBodies[0].addEventListener("input",function(ev){
     var t=ev.target; if(!t.classList.contains("hr"))return; var a=findA(t.dataset.id); if(!a)return;
     a.hours[+t.dataset.m]=toNum(t.value); var tot=0; for(var wc=0;wc<WIN;wc++) tot+=toNum(a.hours[viewStart+wc]);
-    var tc=el("tot-"+a.id); if(tc)tc.textContent=tot||""; renderKPIs(); queueSave();
+    var tc=el("tot-"+a.id); if(tc)tc.textContent=tot||""; updateAssignFoot(); renderKPIs(); queueSave();
   });
   el("assign").tBodies[0].addEventListener("change",function(ev){
     var t=ev.target; if(!t.classList.contains("sel"))return; var a=findA(t.dataset.id); if(!a)return;
@@ -716,7 +785,10 @@
     var b=ev.target.closest(".del"); if(!b)return;
     state.assignments=state.assignments.filter(function(a){return a.id!=b.dataset.id;}); renderKPIs(); renderAssign(); queueSave();
   });
-  el("add").onclick=function(){ state.assignments.push({id:nextId++,emp:"",role:"Site Supervision",project:"",hours:zeros()}); renderAssign(); queueSave(); var w=el("assign").parentNode; w.scrollTop=w.scrollHeight; };
+  el("add").onclick=function(){
+    // prefill from active filters so the new row stays visible
+    function pick(f){ return (f&&f!==NONE)?f:""; }
+    state.assignments.push({id:nextId++,emp:pick(aFilter.emp),role:pick(aFilter.role)||"Site Supervision",project:pick(aFilter.project),hours:zeros()}); renderAssign(); queueSave(); var w=el("assign").parentNode; w.scrollTop=w.scrollHeight; };
 
   el("sched").tBodies[0].addEventListener("click",function(ev){
     var del=ev.target.closest(".del"); if(del){ removeProject(del.dataset.rmproj); return; }
@@ -784,7 +856,7 @@
     var winMonths=MONTHS.slice(viewStart,viewStart+WIN);
     if(current==="assign"){
       fname="labor-plan.csv"; rows=[["Employee","Role","Project"].concat(winMonths).concat(["Total"])];
-      state.assignments.slice().sort(function(a,b){return (a.emp||"~")<(b.emp||"~")?-1:1;}).forEach(function(a){ var tot=0,hh=[]; for(var c=0;c<WIN;c++){ var v=toNum(a.hours[viewStart+c]); hh.push(v); tot+=v; } rows.push([a.emp,a.role,a.project].concat(hh).concat([tot])); });
+      filteredAssignments().forEach(function(a){ var tot=0,hh=[]; for(var c=0;c<WIN;c++){ var v=toNum(a.hours[viewStart+c]); hh.push(v); tot+=v; } rows.push([a.emp,a.role,a.project].concat(hh).concat([tot])); });
     } else if(current==="contract"){
       fname="contract-split.csv"; rows=[["Job","Contract","OH&P %","Employee","Role","$/hr","OH&P/hr"].concat(winMonths).concat(["In view","Job total"])];
       var cl=[]; contractJobs().forEach(function(j){ j.sp.people.forEach(function(x){ cl.push({p:j.p,sp:j.sp,x:x}); }); });
